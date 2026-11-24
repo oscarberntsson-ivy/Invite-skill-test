@@ -1,0 +1,75 @@
+{
+  "fetched_at": "2026-11-24T12:00:00Z",
+  "access": {"ok": true},
+  "repo": {
+    "full_name": "exempel-org/min-applikation",
+    "html_url": "https://github.com/exempel-org/min-applikation",
+    "created_at": "2026-11-10T08:00:00Z",
+    "pushed_at": "2026-11-23T16:42:10Z",
+    "default_branch": "main"
+  },
+  "branches": [
+    {"name": "main", "commit": {"sha": "1111111111111111111111111111111111111111"}, "protected": false},
+    {"name": "feature/inloggning", "commit": {"sha": "3333333333333333333333333333333333333333"}, "protected": false}
+  ],
+  "commits_by_branch": {
+    "main": [
+      {
+        "sha": "2222222222222222222222222222222222222222",
+        "html_url": "https://github.com/exempel-org/min-applikation/commit/2222222",
+        "commit": {
+          "message": "Add start page",
+          "author": {"name": "Anna Andersson", "email": "anna@example.com", "date": "2026-11-18T09:15:00Z"}
+        },
+        "author": {"login": "anna-a"},
+        "parents": [{"sha": "1111111111111111111111111111111111111111"}]
+      },
+      {
+        "sha": "1111111111111111111111111111111111111111",
+        "commit": {
+          "message": "Initial commit",
+          "author": {"name": "repo-flow", "email": "bot@example.com", "date": "2026-11-10T08:00:05Z"}
+        },
+        "author": null,
+        "parents": []
+      }
+    ],
+    "feature/inloggning": [
+      {
+        "sha": "3333333333333333333333333333333333333333",
+        "commit": {
+          "message": "Added authentication middleware and updated user routes.",
+          "author": {"name": "Erik Eriksson", "email": "erik@example.com", "date": "2026-11-23T16:40:00Z"}
+        },
+        "author": {"login": "erik-e"},
+        "parents": [{"sha": "2222222222222222222222222222222222222222"}],
+        "files": [{"filename": "src/middleware/auth.js", "status": "added"}, {"filename": "src/routes/users.js", "status": "modified"}]
+      },
+      {
+        "sha": "2222222222222222222222222222222222222222",
+        "commit": {
+          "message": "Add start page",
+          "author": {"name": "Anna Andersson", "email": "anna@example.com", "date": "2026-11-18T09:15:00Z"}
+        },
+        "author": {"login": "anna-a"},
+        "parents": [{"sha": "1111111111111111111111111111111111111111"}]
+      }
+    ]
+  },
+  "pull_requests": [
+    {
+      "number": 1,
+      "title": "Inloggningsfunktion",
+      "state": "open",
+      "draft": false,
+      "user": {"login": "erik-e"},
+      "created_at": "2026-11-23T16:45:00Z",
+      "merged_at": null,
+      "closed_at": null,
+      "base": {"ref": "main"},
+      "head": {"ref": "feature/inloggning"},
+      "html_url": "https://github.com/exempel-org/min-applikation/pull/1"
+    }
+  ],
+  "errors": []
+}

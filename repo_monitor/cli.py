@@ -1,0 +1,280 @@
+"""Kommandoradsgränssnitt: python3 -m repo_monitor <kommando>.
+
+Kommandon:
+  registry list|show|add|remove|set-automation   Hantera registret över projekt
+  template OWNER/REPO                            Skriv ut en tom snapshot-mall
+  analyze SNAPSHOT [--view V] [--save]           Analysera ett repository
+  overview SNAPSHOT...                           Översikt över flera repositories
+  state show OWNER/REPO                          Visa sparad historik
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+from . import analysis as A
+from . import render, storage
+from .snapshot import normalize
+from .storage import MonitorError
+from .timeutil import fmt_date, now_utc, parse_iso, to_iso
+
+VIEWS = ("status", "activity", "contributors", "changes", "report")
+# Vyer som räknas som en "kontroll" och därför uppdaterar historiken som standard.
+SAVING_VIEWS = {"changes", "report"}
+
+
+def _print(text: str) -> None:
+    sys.stdout.write(text if text.endswith("\n") else text + "\n")
+
+
+def _load_snapshot(path: str) -> dict:
+    p = Path(path)
+    if not p.exists():
+        raise MonitorError(f"Snapshot-filen {path} finns inte.")
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise MonitorError(
+            f"Snapshot-filen {path} innehåller ogiltig JSON (rad {exc.lineno}, kolumn {exc.colno}): {exc.msg}"
+        ) from exc
+    return normalize(raw)
+
+
+def _run_analysis(snapshot: dict, registry: dict, now):
+    repo = snapshot["repo"]
+    entry = storage.find_entry(registry, repo["owner"], repo["name"])
+    prev = storage.load_state(repo["owner"], repo["name"])
+    result = A.analyze(snapshot, entry, prev, registry.get("automation_accounts"), now)
+    return result, entry, prev
+
+
+def _persist(snapshot, result, entry, prev, registry, markdown, now) -> None:
+    repo = snapshot["repo"]
+    state = A.build_state(result, snapshot, prev)
+    if markdown is not None and result["access"]["ok"]:
+        path = storage.save_report(repo["owner"], repo["name"], markdown, now)
+        try:
+            state["last_report"] = str(path.relative_to(storage.home()))
+        except ValueError:
+            state["last_report"] = str(path)
+    storage.save_state(repo["owner"], repo["name"], state)
+    if entry is not None and result["access"]["ok"]:
+        if repo.get("created_at"):
+            entry["created_at"] = repo["created_at"]
+        if repo.get("url"):
+            entry["url"] = repo["url"]
+        if result.get("contributors") is not None:
+            entry["contributors"] = [p["login"] or p["display"] for p in result["contributors"]]
+        last = result.get("last_activity")
+        entry["last_activity"] = last["date"] if last else entry.get("last_activity")
+        entry["last_checked_at"] = result["checked_at"]
+        storage.save_registry(registry)
+
+
+def _json_safe(result: dict) -> dict:
+    return {k: v for k, v in result.items() if not k.startswith("_")}
+
+
+# --------------------------------------------------------------------------
+# Kommandon
+# --------------------------------------------------------------------------
+
+def cmd_analyze(args) -> int:
+    snapshot = _load_snapshot(args.snapshot)
+    registry = storage.load_registry()
+    now = parse_iso(args.now) if args.now else now_utc()
+    result, entry, prev = _run_analysis(snapshot, registry, now)
+    markdown = render.render(result, args.view)
+    save = args.save if args.save is not None else args.view in SAVING_VIEWS
+    if save:
+        _persist(snapshot, result, entry, prev, registry,
+                 markdown if args.view == "report" else None, now)
+    if args.format == "json":
+        _print(json.dumps(_json_safe(result), ensure_ascii=False, indent=2))
+    else:
+        _print(markdown)
+        if save:
+            _print("\n*Kontrollen har sparats. Nästa kontroll jämförs mot denna.*")
+    return 0
+
+
+def cmd_overview(args) -> int:
+    registry = storage.load_registry()
+    now = parse_iso(args.now) if args.now else now_utc()
+    analyses, seen = [], set()
+    to_persist = []
+    for path in args.snapshots:
+        snapshot = _load_snapshot(path)
+        result, entry, prev = _run_analysis(snapshot, registry, now)
+        analyses.append(result)
+        seen.add(storage.repo_key(snapshot["repo"]["owner"], snapshot["repo"]["name"]))
+        to_persist.append((snapshot, result, entry, prev))
+    unchecked = [e for e in registry["repositories"]
+                 if storage.repo_key(e["owner"], e["name"]) not in seen]
+    markdown = render.render_overview(analyses, unchecked, now)
+    save = args.save if args.save is not None else True
+    if save:
+        for snapshot, result, entry, prev in to_persist:
+            _persist(snapshot, result, entry, prev, registry, None, now)
+    if args.format == "json":
+        _print(json.dumps({"checked_at": to_iso(now),
+                           "projects": [_json_safe(a) for a in analyses],
+                           "unchecked": unchecked}, ensure_ascii=False, indent=2))
+    else:
+        _print(markdown)
+    return 0
+
+
+def cmd_template(args) -> int:
+    owner, name = storage.parse_full_name(args.repo)
+    template = {
+        "fetched_at": to_iso(now_utc()),
+        "access": {"ok": True, "error": None},
+        "repo": {"owner": owner, "name": name, "html_url": f"https://github.com/{owner}/{name}",
+                 "created_at": None, "pushed_at": None, "default_branch": "main"},
+        "branches": [],
+        "commits_by_branch": {"main": []},
+        "pull_requests": [],
+        "errors": [],
+    }
+    _print(json.dumps(template, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_registry(args) -> int:
+    registry = storage.load_registry()
+    action = args.action
+    if action == "list":
+        repos = registry["repositories"]
+        if args.format == "json":
+            _print(json.dumps(registry, ensure_ascii=False, indent=2))
+            return 0
+        if not repos:
+            _print("Registret är tomt. Lägg till ett projekt med:\n"
+                   "  python3 -m repo_monitor registry add ägare/namn")
+            return 0
+        _print(f"{len(repos)} registrerade projekt:\n")
+        for e in repos:
+            last = fmt_date(e["last_activity"]) if e.get("last_activity") else "ingen känd"
+            created = fmt_date(e["created_at"]) if e.get("created_at") else "okänt"
+            people = ", ".join(e.get("contributors") or []) or "inga ännu"
+            _print(f"- {e['owner']}/{e['name']} ({e.get('project_name') or e['name']})\n"
+                   f"    URL: {e.get('url')}\n    Skapat: {created} · Senaste aktivitet: {last}\n"
+                   f"    Contributors: {people}"
+                   + (f"\n    Inbjudna: {', '.join(e['invited_contributors'])}" if e.get("invited_contributors") else ""))
+        if registry.get("automation_accounts"):
+            _print("\nAutomationskonton (räknas inte som contributors): "
+                   + ", ".join(registry["automation_accounts"]))
+        return 0
+
+    if action == "set-automation":
+        accounts = [a.strip() for a in (args.repo or "").split(",") if a.strip()]
+        registry["automation_accounts"] = accounts
+        storage.save_registry(registry)
+        _print("Automationskonton: " + (", ".join(accounts) or "(inga)"))
+        return 0
+
+    owner, name = storage.parse_full_name(args.repo)
+    if action == "show":
+        entry = storage.find_entry(registry, owner, name)
+        if entry is None:
+            raise MonitorError(f"{owner}/{name} finns inte i registret.")
+        _print(json.dumps(entry, ensure_ascii=False, indent=2))
+        return 0
+    if action == "remove":
+        if not storage.remove_entry(registry, owner, name):
+            raise MonitorError(f"{owner}/{name} finns inte i registret.")
+        storage.save_registry(registry)
+        _print(f"{owner}/{name} togs bort ur registret (historiken i repo-monitor/state/ finns kvar).")
+        return 0
+    if action == "add":
+        invited = [i.strip().lstrip("@") for i in (args.invited or "").split(",") if i.strip()]
+        created_at = to_iso(parse_iso(args.created_at)) if args.created_at else None
+        if args.created_at and created_at is None:
+            raise MonitorError(f"Ogiltigt datum: {args.created_at}. Använd t.ex. 2026-11-24 eller 2026-11-24T10:00:00Z.")
+        entry, created = storage.upsert_entry(
+            registry, owner, name,
+            project_name=args.project_name, url=args.url, created_at=created_at,
+            invited_contributors=invited or None, source=args.source,
+            invitation_issue=args.issue,
+        )
+        storage.save_registry(registry)
+        _print(("Registrerade " if created else "Uppdaterade ") + f"{owner}/{name}.")
+        return 0
+    raise MonitorError(f"Okänd registeråtgärd: {action}")
+
+
+def cmd_state(args) -> int:
+    owner, name = storage.parse_full_name(args.repo)
+    state = storage.load_state(owner, name)
+    if state is None:
+        _print(f"Ingen historik finns för {owner}/{name}. Nästa kontroll blir en baslinje.")
+        return 0
+    _print(json.dumps(state, ensure_ascii=False, indent=2))
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="repo_monitor", description="GitHub Repository Monitor")
+    sub = p.add_subparsers(dest="command", required=True)
+
+    a = sub.add_parser("analyze", help="Analysera en snapshot av ett repository")
+    a.add_argument("snapshot")
+    a.add_argument("--view", choices=VIEWS, default="report")
+    a.add_argument("--format", choices=("md", "json"), default="md")
+    g = a.add_mutually_exclusive_group()
+    g.add_argument("--save", dest="save", action="store_true", default=None,
+                   help="Spara som kontroll (historik)")
+    g.add_argument("--no-save", dest="save", action="store_false")
+    a.add_argument("--now", help=argparse.SUPPRESS)
+    a.set_defaults(func=cmd_analyze)
+
+    o = sub.add_parser("overview", help="Översikt över flera repositories")
+    o.add_argument("snapshots", nargs="*")
+    o.add_argument("--format", choices=("md", "json"), default="md")
+    g = o.add_mutually_exclusive_group()
+    g.add_argument("--save", dest="save", action="store_true", default=None)
+    g.add_argument("--no-save", dest="save", action="store_false")
+    o.add_argument("--now", help=argparse.SUPPRESS)
+    o.set_defaults(func=cmd_overview)
+
+    t = sub.add_parser("template", help="Skriv ut en tom snapshot-mall")
+    t.add_argument("repo")
+    t.set_defaults(func=cmd_template)
+
+    r = sub.add_parser("registry", help="Hantera registret")
+    r.add_argument("action", choices=("list", "show", "add", "remove", "set-automation"))
+    r.add_argument("repo", nargs="?", help="ägare/namn (för set-automation: kommaseparerade konton)")
+    r.add_argument("--project-name")
+    r.add_argument("--url")
+    r.add_argument("--created-at")
+    r.add_argument("--invited", help="Kommaseparerade GitHub-användarnamn")
+    r.add_argument("--issue", type=int, help="Nummer på inbjudnings-issue")
+    r.add_argument("--source", help="t.ex. automation, manual, discovered")
+    r.add_argument("--format", choices=("text", "json"), default="text")
+    r.set_defaults(func=cmd_registry)
+
+    s = sub.add_parser("state", help="Visa sparad historik")
+    s.add_argument("action", choices=("show",))
+    s.add_argument("repo")
+    s.set_defaults(func=cmd_state)
+    return p
+
+
+def main(argv=None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.command == "registry" and args.action not in ("list", "set-automation") and not args.repo:
+        parser.error("ange ett repository (ägare/namn)")
+    try:
+        return args.func(args)
+    except MonitorError as exc:
+        sys.stderr.write(f"Fel: {exc}\n")
+        return 2
+
+
+if __name__ == "__main__":  # pragma: no cover
+    sys.exit(main())

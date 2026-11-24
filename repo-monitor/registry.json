@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "description": "Register över repositories som skapats av det automatiserade repo-flödet och som Repository Monitor ska följa.",
+  "automation_accounts": [],
+  "repositories": []
+}
