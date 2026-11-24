@@ -90,6 +90,12 @@ Utöver read-only-läget i servern gäller detta i `.claude/settings.json`:
 > Claude måste du tillfälligt ta bort `mcp__github__create_pull_request` från listan, till exempel i
 > `.claude/settings.local.json`.
 
+## Server för att skapa issues
+
+Funktionen för att skapa issues använder en separat server, `github-issues`, med en egen token som
+bara har *Issues: Read and write* på det konfigurerade repositoryt. Se
+[skapa-issue.md](skapa-issue.md). Lässervern `github` ovan ändras inte och kan aldrig skriva.
+
 ## Verktyg som används
 
 | Behov | MCP-verktyg |

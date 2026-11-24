@@ -1,0 +1,11 @@
+{
+  "enabled": false,
+  "repository": "ÄGARE/REPO",
+  "template_path": ".github/ISSUE_TEMPLATE/MALL.yml",
+  "template_ref": null,
+  "title": null,
+  "extra_labels": [],
+  "default_assignees": [],
+  "milestone": null,
+  "purpose": "Issue som triggar en GitHub Action."
+}

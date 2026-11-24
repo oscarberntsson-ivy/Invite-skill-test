@@ -1,5 +1,5 @@
 {
-  "enabledMcpjsonServers": ["github"],
+  "enabledMcpjsonServers": ["github", "github-issues"],
   "permissions": {
     "allow": [
       "Bash(python3 -m repo_monitor:*)",
@@ -14,8 +14,17 @@
       "mcp__github__pull_request_read",
       "mcp__github__list_issues",
       "mcp__github__issue_read",
+      "mcp__github__get_label",
       "mcp__github__list_repository_collaborators",
-      "Write(repo-monitor/snapshots/**)"
+      "mcp__github-issues__issue_read",
+      "mcp__github-issues__list_issues",
+      "Write(repo-monitor/snapshots/**)",
+      "Write(repo-monitor/issue-work/**)"
+    ],
+    "ask": [
+      "mcp__github-issues__issue_write",
+      "Bash(python3 -m repo_monitor issue configure:*)",
+      "Bash(python3 -m repo_monitor issue record:*)"
     ],
     "deny": [
       "mcp__github__create_or_update_file",
@@ -40,7 +49,41 @@
       "mcp__github__sub_issue_write",
       "mcp__github__add_issue_comment",
       "mcp__github__update_issue_comment",
-      "mcp__github__actions_run_trigger"
+      "mcp__github__actions_run_trigger",
+      "mcp__github-issues__sub_issue_write",
+      "mcp__github-issues__add_issue_comment",
+      "mcp__github-issues__update_issue_comment",
+      "mcp__github-issues__assign_copilot_to_issue",
+      "Edit(repo-monitor/issue-config.json)",
+      "Write(repo-monitor/issue-config.json)",
+      "Edit(repo-monitor/issue-drafts/**)",
+      "Write(repo-monitor/issue-drafts/**)",
+      "Edit(.claude/hooks/**)",
+      "Write(.claude/hooks/**)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__github(-issues)?__issue_write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/issue_guard.py\" pre"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "mcp__github(-issues)?__issue_write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/issue_guard.py\" post"
+          }
+        ]
+      }
     ]
   }
 }

@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 from . import analysis as A
-from . import render, storage
+from . import issues, render, storage
 from .snapshot import normalize
 from .storage import MonitorError
 from .timeutil import fmt_date, now_utc, parse_iso, to_iso
@@ -217,6 +217,102 @@ def cmd_state(args) -> int:
     return 0
 
 
+def _read_json_arg(path, what):
+    if not path:
+        return None
+    p = Path(path)
+    if not p.exists():
+        raise MonitorError(f"{what}-filen {path} finns inte.")
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise MonitorError(f"{what}-filen {path} innehåller ogiltig JSON (rad {exc.lineno}): {exc.msg}") from exc
+
+
+def _load_template(path):
+    cfg, _, _ = issues.require_config()
+    p = Path(path)
+    if not p.exists():
+        raise MonitorError(f"Template-filen {path} finns inte. Hämta {cfg['template_path']} via GitHub MCP först.")
+    return issues.parse_template(p.read_text(encoding="utf-8"), cfg["template_path"])
+
+
+def cmd_issue(args) -> int:
+    action = args.action
+    if action == "configure":
+        cfg = issues.load_config()
+        if args.repository:
+            o, n = storage.parse_full_name(args.repository)
+            cfg["repository"] = f"{o}/{n}"
+        for key in ("template_path", "template_ref", "title", "milestone"):
+            val = getattr(args, key)
+            if val is not None:
+                cfg[key] = val or None
+        if args.labels is not None:
+            cfg["extra_labels"] = issues._as_list(args.labels)
+        if args.assignees is not None:
+            cfg["default_assignees"] = issues._as_list(args.assignees)
+        if args.enable:
+            cfg["enabled"] = True
+        if args.disable:
+            cfg["enabled"] = False
+        issues.save_config(cfg)
+        args.action = "config"
+        return cmd_issue(args)
+    if action == "config":
+        cfg = issues.load_config()
+        _print(json.dumps(cfg, ensure_ascii=False, indent=2))
+        problems = issues.config_problems(cfg)
+        _print("\nStatus: " + ("klar att använda." if not problems else
+                               "inte klar:\n  - " + "\n  - ".join(problems)))
+        return 0 if not problems else 3
+    if action == "template":
+        t = _load_template(args.file)
+        out = {k: v for k, v in t.items() if k not in ("body",)}
+        out["questions"] = issues.questions(t)
+        _print(json.dumps(out, ensure_ascii=False, indent=2))
+        return 0
+    if action == "draft":
+        cfg, _, _ = issues.require_config()
+        t = _load_template(args.template_file)
+        answers = _read_json_arg(args.answers, "Svars") or {}
+        if not isinstance(answers, dict):
+            raise MonitorError("Svarsfilen måste vara ett JSON-objekt (fält-id eller label -> svar).")
+        meta = _read_json_arg(args.repo_meta, "Repo-meta")
+        draft = issues.build_draft(cfg, t, answers, meta, args.assignees)
+        if draft["status"] == "draft":
+            issues.save_draft(draft)
+        _print(issues.render_preview(draft, t))
+        return 0 if draft["status"] == "draft" else 3
+    if action == "payload":
+        _, d = issues.find_draft(args.file)
+        if d.get("status") != "draft":
+            raise MonitorError(f"Utkastet har status '{d.get('status')}' och kan inte skickas.")
+        _print(json.dumps(d["payload"], ensure_ascii=False, indent=2))
+        return 0
+    if action == "list":
+        d = issues.drafts_dir()
+        files = sorted(d.glob("*.json")) if d.exists() else []
+        if not files:
+            _print("Inga utkast.")
+        for f in files:
+            x = storage.read_json(f, {})
+            _print(f"- {x.get('id')} [{x.get('status')}] {x.get('payload', {}).get('title')}"
+                   + (f" → {x['issue_url']}" if x.get("issue_url") else ""))
+        return 0
+    if action == "record":
+        path, d = issues.find_draft(args.file)
+        if not args.url:
+            raise MonitorError("Ange --url till den skapade issuen.")
+        d["status"] = "created"
+        d["issue_url"] = args.url
+        d.setdefault("submitted_at", to_iso(now_utc()))
+        storage.write_json(path, d)
+        _print(f"Utkast {d['id']} markerat som skapat: {args.url}")
+        return 0
+    raise MonitorError(f"Okänd issue-åtgärd: {action}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="repo_monitor", description="GitHub Repository Monitor")
     sub = p.add_subparsers(dest="command", required=True)
@@ -256,6 +352,24 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--source", help="t.ex. automation, manual, discovered")
     r.add_argument("--format", choices=("text", "json"), default="text")
     r.set_defaults(func=cmd_registry)
+
+    i = sub.add_parser("issue", help="Skapa issue från den konfigurerade templaten")
+    i.add_argument("action", choices=("config", "configure", "template", "draft", "payload", "list", "record"))
+    i.add_argument("file", nargs="?", help="template-fil (template) eller utkast-id (payload/record)")
+    i.add_argument("--repository")
+    i.add_argument("--template-path")
+    i.add_argument("--template-ref")
+    i.add_argument("--title")
+    i.add_argument("--labels", help="Extra labels (kommaseparerade)")
+    i.add_argument("--assignees", help="Assignees (kommaseparerade)")
+    i.add_argument("--milestone")
+    i.add_argument("--enable", action="store_true")
+    i.add_argument("--disable", action="store_true")
+    i.add_argument("--template-file", help="Lokalt sparad kopia av templaten")
+    i.add_argument("--answers", help="JSON-fil med svar")
+    i.add_argument("--repo-meta", help="JSON-fil med verifierade labels/assignees/milestones")
+    i.add_argument("--url")
+    i.set_defaults(func=cmd_issue)
 
     s = sub.add_parser("state", help="Visa sparad historik")
     s.add_argument("action", choices=("show",))

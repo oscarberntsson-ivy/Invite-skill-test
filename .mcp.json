@@ -8,6 +8,14 @@
         "X-MCP-Readonly": "true",
         "X-MCP-Toolsets": "context,repos,pull_requests,issues"
       }
+    },
+    "github-issues": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "headers": {
+        "Authorization": "Bearer ${GITHUB_ISSUES_TOKEN}",
+        "X-MCP-Toolsets": "issues"
+      }
     }
   }
 }

@@ -12,6 +12,14 @@ Du kan till exempel fråga:
 - *Vad har förändrats sedan förra kontrollen?*
 - *Vilka projekt är fortfarande inaktiva?*
 
+Monitorn har två ansvarsområden:
+
+1. **Monitorering:** läsa, analysera och sammanfatta aktivitet i GitHub-repositories. Här görs
+   enbart läsning.
+2. **Issue Management:** skapa en issue i **ett** konfigurerat repository med **en** konfigurerad
+   template. Issuen triggar en GitHub Action. Agenten visar alltid ett utkast och skapar issuen
+   först efter ditt godkännande. Se [docs/skapa-issue.md](docs/skapa-issue.md).
+
 ## Så fungerar det
 
 ```
@@ -65,6 +73,7 @@ Du kan till exempel fråga:
 | `/repo-monitor:contributors` | `/repo-monitor-contributors ägare/repo` | Vem har bidragit med vad | Nej |
 | `/repo-monitor:changes` | `/repo-monitor-changes ägare/repo` | Vad som ändrats sedan förra kontrollen | Ja |
 | `/repo-monitor:report` | `/repo-monitor-report ägare/repo` | Fullständig statusrapport (sparas i `repo-monitor/reports/`) | Ja |
+| – | `/repo-monitor-create-issue beskrivning` | Skapar en issue från den konfigurerade templaten, efter utkast och godkännande | – |
 
 > **Varför bindestreck i stället för kolon?** Projektets egna kommandon i Claude Code (skills) får bara
 > innehålla små bokstäver, siffror och bindestreck. Kolon (`namn:kommando`) används bara för kommandon
@@ -110,8 +119,11 @@ en sidogren räknas inte som mergad, och en öppen pull request räknas inte som
 
 | Sökväg | Innehåll |
 |---|---|
-| `.mcp.json` | GitHub MCP-servern (read-only, begränsade toolsets, token från miljövariabel) |
-| `.claude/settings.json` | Tillåtna läsverktyg och blockerade skrivverktyg |
+| `.mcp.json` | MCP-servrarna `github` (read-only) och `github-issues` (bara issues, separat token) |
+| `.claude/settings.json` | Tillåtna läsverktyg, blockerade skrivverktyg och hooks |
+| `.claude/hooks/issue_guard.py` | Spärr: issues skapas bara i det konfigurerade repot och bara enligt ett godkänt utkast |
+| `repo-monitor/issue-config.json` | Konfiguration för issue-skapande (repository och template) |
+| `repo-monitor/issue-drafts/` | Sparade utkast och skapade issues |
 | `.claude/skills/repo-monitor/SKILL.md` | Huvudskillen: hela arbetsflödet och reglerna |
 | `.claude/skills/repo-monitor-*/SKILL.md` | De sex kommandona |
 | `repo_monitor/` | Analys, statusmodell, historik och svenska rapporter |
@@ -138,4 +150,5 @@ MCP:s råformat.
 - [MCP-konfiguration och behörigheter](docs/mcp-konfiguration.md)
 - [Registrera repositories (och koppla in repo-flödet)](docs/registrera-repositories.md)
 - [Snapshot-format](docs/snapshot-format.md)
+- [Skapa issue från templaten](docs/skapa-issue.md)
 - [Felsökning](docs/felsokning.md)
