@@ -55,6 +55,17 @@ def _header(a) -> list[str]:
     p = a["project"]
     lines = [f"## PROJEKT: {p['project_name']}", ""]
     lines.append(f"- **Repository:** [{p['full_name']}]({p['url']})")
+    if p.get("person_name") or p.get("github_username"):
+        who = p.get("person_name") or p["github_username"]
+        if p.get("person_name") and p.get("github_username"):
+            who += f" (GitHub: {p['github_username']})"
+        lines.append(f"- **Person:** {who}")
+    if p.get("invitation_issue"):
+        ref = f"#{p['invitation_issue']}"
+        if p.get("invitation_issue_url"):
+            ref = f"[{ref}]({p['invitation_issue_url']})"
+        when = f" den {fmt_date(p['invited_at'])}" if p.get("invited_at") else ""
+        lines.append(f"- **Beställd via issue:** {ref}{when}")
     lines.append(f"- **Skapat:** {fmt_date(p['created_at']) if p['created_at'] else 'okänt (kunde inte hämtas)'}")
     lines.append(f"- **Kontrollerat:** {fmt_datetime(a['checked_at'])} ({LOCAL_TZ_LABEL})")
     if not p["registered"]:
@@ -75,6 +86,9 @@ def _unavailable(a) -> list[str]:
         lines.append("")
         lines.append(f"Felmeddelande från GitHub: `{err}`")
     lines += ["", "**Möjliga orsaker:**",
+              *(["- Repositoryt har kanske inte skapats ännu – det beställdes via en issue, men "
+                 "GitHub Action kan ha misslyckats eller inte körts."]
+                if a["project"].get("invitation_issue") else []),
               "- Repositoryt har bytt namn, flyttats eller tagits bort.",
               "- Repositoryt är privat och GitHub-token saknar åtkomst till det.",
               "- Tillfälligt problem med anslutningen till GitHub (MCP).",

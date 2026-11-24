@@ -31,6 +31,28 @@ finns bara ett registrerat projekt, använd det, annars fråga vilket.
 
 ## Steg 1 – Vilka repositories?
 
+Repositories som följs heter `ivy-engineering-challenge-<github-användarnamn>` (mönster, ägare och
+namnmall finns i `repo-monitor/discovery.json`). Personens namn kommer från beställnings-issuen som
+skapades med templaten.
+
+**Synkronisera** registret innan `all`, och när en person eller ett repo inte hittas i registret:
+
+1. Issues: `mcp__github__list_issues` i det repository som `python3 -m repo_monitor discover config`
+   visar under "Issues läses från", med `state` utelämnat (både öppna och stängda), `perPage: 100` och
+   `fields: ["number","title","body","state","labels","created_at"]`. Bläddra med `after` tills
+   `hasNextPage` är false. Spara hela svaret till `repo-monitor/snapshots/_issues.json`.
+2. Repositories (om verktyget finns): `search_repositories` med
+   `query: "ivy-engineering-chall in:name org:<owner>"`, `minimal_output: false`, `perPage: 100`.
+   Spara svaret till `repo-monitor/snapshots/_repos.json`. Saknas verktyget: hoppa över `--repos`.
+3. `python3 -m repo_monitor discover sync --issues repo-monitor/snapshots/_issues.json [--repos repo-monitor/snapshots/_repos.json]`
+4. Nämn för användaren repositories som borde finnas enligt en issue men saknas, och issues där
+   inget användarnamn kunde läsas.
+
+**Frågor om en person** ("hur går det för Anna?", "har erik-e börjat?"):
+`python3 -m repo_monitor registry find "Anna"`. Den söker på namn, GitHub-användarnamn och repo-namn,
+utan hänsyn till versaler och accenter. Ger det flera träffar: fråga vem som avses. Ger det ingen
+träff: synkronisera och sök igen.
+
 - Registret finns i `repo-monitor/registry.json`. Lista: `python3 -m repo_monitor registry list`.
 - Repositories som inte finns i registret kan ändå analyseras, men föreslå att de registreras:
   `python3 -m repo_monitor registry add ägare/namn --project-name "Namn" --invited anna,erik --source automation`.

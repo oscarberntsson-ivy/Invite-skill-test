@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 from . import analysis as A
-from . import issues, render, storage
+from . import discovery, issues, render, storage
 from .snapshot import normalize
 from .storage import MonitorError
 from .timeutil import fmt_date, now_utc, parse_iso, to_iso
@@ -161,7 +161,8 @@ def cmd_registry(args) -> int:
             last = fmt_date(e["last_activity"]) if e.get("last_activity") else "ingen känd"
             created = fmt_date(e["created_at"]) if e.get("created_at") else "okänt"
             people = ", ".join(e.get("contributors") or []) or "inga ännu"
-            _print(f"- {e['owner']}/{e['name']} ({e.get('project_name') or e['name']})\n"
+            person = f" – {e['person_name']}" if e.get("person_name") else ""
+            _print(f"- {e['owner']}/{e['name']} ({e.get('project_name') or e['name']}){person}\n"
                    f"    URL: {e.get('url')}\n    Skapat: {created} · Senaste aktivitet: {last}\n"
                    f"    Contributors: {people}"
                    + (f"\n    Inbjudna: {', '.join(e['invited_contributors'])}" if e.get("invited_contributors") else ""))
@@ -175,6 +176,19 @@ def cmd_registry(args) -> int:
         registry["automation_accounts"] = accounts
         storage.save_registry(registry)
         _print("Automationskonton: " + (", ".join(accounts) or "(inga)"))
+        return 0
+
+    if action == "find":
+        hits = discovery.find(registry, args.repo)
+        if args.format == "json":
+            _print(json.dumps(hits, ensure_ascii=False, indent=2))
+        elif not hits:
+            _print(f"Inget registrerat projekt matchar ”{args.repo}”.")
+        else:
+            for e in hits:
+                who = e.get("person_name") or e.get("github_username") or e.get("project_name")
+                _print(f"- {who}: {e['owner']}/{e['name']}"
+                       + (f" (GitHub: {e['github_username']})" if e.get("github_username") else ""))
         return 0
 
     owner, name = storage.parse_full_name(args.repo)
@@ -313,6 +327,51 @@ def cmd_issue(args) -> int:
     raise MonitorError(f"Okänd issue-åtgärd: {action}")
 
 
+def cmd_discover(args) -> int:
+    if args.action in ("config", "configure"):
+        cfg = discovery.load_config()
+        if args.action == "configure":
+            if args.owner:
+                cfg["owner"] = args.owner
+            if args.pattern:
+                import re as _re
+                try:
+                    if "username" not in _re.compile(args.pattern).groupindex:
+                        raise MonitorError("Mönstret måste innehålla gruppen (?P<username>...).")
+                except _re.error as exc:
+                    raise MonitorError(f"Ogiltigt mönster: {exc}") from exc
+                cfg["repo_name_pattern"] = args.pattern
+            if args.name_template:
+                if "{username}" not in args.name_template:
+                    raise MonitorError("Namnmallen måste innehålla {username}.")
+                cfg["repo_name_template"] = args.name_template
+            if args.issues_repository is not None:
+                cfg["issues_repository"] = args.issues_repository or None
+            if args.labels is not None:
+                cfg["issue_labels"] = issues._as_list(args.labels)
+            if args.name_field:
+                cfg["issue_fields"]["name"] = issues._as_list(args.name_field)
+            if args.username_field:
+                cfg["issue_fields"]["github_username"] = issues._as_list(args.username_field)
+            discovery.save_config(cfg)
+        _print(json.dumps(cfg, ensure_ascii=False, indent=2))
+        _print(f"\nIssues läses från: {discovery.issues_repository(cfg) or '(inget repository konfigurerat)'}")
+        return 0
+    if args.action == "sync":
+        cfg = discovery.load_config()
+        issues_raw = _read_json_arg(args.issues, "Issue")
+        repos_raw = _read_json_arg(args.repos, "Repository")
+        if issues_raw is None and repos_raw is None:
+            raise MonitorError("Ange --issues och/eller --repos.")
+        registry = storage.load_registry()
+        result = discovery.sync(registry, issues_raw, repos_raw, cfg)
+        storage.save_registry(registry)
+        _print(json.dumps(result, ensure_ascii=False, indent=2) if args.format == "json"
+               else discovery.render_sync(result))
+        return 0
+    raise MonitorError(f"Okänd åtgärd: {args.action}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="repo_monitor", description="GitHub Repository Monitor")
     sub = p.add_subparsers(dest="command", required=True)
@@ -342,7 +401,7 @@ def build_parser() -> argparse.ArgumentParser:
     t.set_defaults(func=cmd_template)
 
     r = sub.add_parser("registry", help="Hantera registret")
-    r.add_argument("action", choices=("list", "show", "add", "remove", "set-automation"))
+    r.add_argument("action", choices=("list", "show", "find", "add", "remove", "set-automation"))
     r.add_argument("repo", nargs="?", help="ägare/namn (för set-automation: kommaseparerade konton)")
     r.add_argument("--project-name")
     r.add_argument("--url")
@@ -370,6 +429,20 @@ def build_parser() -> argparse.ArgumentParser:
     i.add_argument("--repo-meta", help="JSON-fil med verifierade labels/assignees/milestones")
     i.add_argument("--url")
     i.set_defaults(func=cmd_issue)
+
+    d = sub.add_parser("discover", help="Hitta challenge-repositories och personer")
+    d.add_argument("action", choices=("config", "configure", "sync"))
+    d.add_argument("--owner")
+    d.add_argument("--pattern", help="Regex för repo-namn med gruppen (?P<username>...)")
+    d.add_argument("--name-template", help="t.ex. ivy-engineering-challenge-{username}")
+    d.add_argument("--issues-repository", help="Repo där beställnings-issues finns (standard: issue-config)")
+    d.add_argument("--labels", help="Bara issues med någon av dessa labels")
+    d.add_argument("--name-field", help="Template-fält (label) med personens namn, kommaseparerade alternativ")
+    d.add_argument("--username-field", help="Template-fält (label) med GitHub-användarnamn")
+    d.add_argument("--issues", help="JSON-fil med svaret från list_issues")
+    d.add_argument("--repos", help="JSON-fil med svaret från search_repositories")
+    d.add_argument("--format", choices=("md", "json"), default="md")
+    d.set_defaults(func=cmd_discover)
 
     s = sub.add_parser("state", help="Visa sparad historik")
     s.add_argument("action", choices=("show",))

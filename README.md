@@ -11,6 +11,7 @@ Du kan till exempel fråga:
 - *Vilka har bidragit, och vad har de gjort?*
 - *Vad har förändrats sedan förra kontrollen?*
 - *Vilka projekt är fortfarande inaktiva?*
+- *Hur går det för Anna?* Personen hittas via namnet i beställnings-issuen.
 
 Monitorn har två ansvarsområden:
 
@@ -54,7 +55,10 @@ Monitorn har två ansvarsområden:
    export GITHUB_PERSONAL_ACCESS_TOKEN=github_pat_...
    ```
 2. Starta Claude Code i den här mappen och godkänn MCP-servern `github` (kontrollera med `/mcp`).
-3. Registrera de projekt som ska följas (se [docs/registrera-repositories.md](docs/registrera-repositories.md)):
+3. Projekten hittas automatiskt. Repona heter `ivy-engineering-challenge-<github-användarnamn>`, och
+   personens namn hämtas från beställnings-issuen (se
+   [docs/registrera-repositories.md](docs/registrera-repositories.md)). Enskilda projekt kan också
+   läggas till för hand:
    ```bash
    python3 -m repo_monitor registry add min-org/mitt-projekt --project-name "Mitt projekt" --invited anna,erik
    ```
@@ -128,6 +132,7 @@ en sidogren räknas inte som mergad, och en öppen pull request räknas inte som
 | `.claude/skills/repo-monitor-*/SKILL.md` | De sex kommandona |
 | `repo_monitor/` | Analys, statusmodell, historik och svenska rapporter |
 | `repo-monitor/registry.json` | Register över projekt som följs |
+| `repo-monitor/discovery.json` | Namnstandard för repos och vilka template-fält som innehåller namn och användarnamn |
 | `repo-monitor/state/` | Historik per repository: senaste kontroll, kända commit-SHA:er, PR-status och grenar |
 | `repo-monitor/reports/` | Sparade rapporter (`latest.md` och en fil per tidpunkt) |
 | `repo-monitor/snapshots/` | Tillfällig rådata från MCP (ignoreras av git) |

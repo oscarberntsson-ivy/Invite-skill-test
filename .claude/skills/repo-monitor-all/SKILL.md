@@ -12,7 +12,7 @@ Sammanfattar samtliga registrerade repositories i en översikt: vilka som är ak
 
 Läs och följ arbetsflödet i `.claude/skills/repo-monitor/SKILL.md` med **läge `all`**.
 
-Hämta data för **varje** repository i `repo-monitor/registry.json` (ett i taget). Repositories som inte kan läsas ska ändå ingå, med `"access": {"ok": false, ...}`. Är registret tomt: förklara hur projekt registreras (se `docs/registrera-repositories.md`).
+Synkronisera först registret från beställnings-issues (och repo-sökning) enligt steg 1 i huvudskillen. Hämta sedan data för **varje** repository i `repo-monitor/registry.json` (ett i taget). Repositories som inte kan läsas ska ändå ingå, med `"access": {"ok": false, ...}`. Är registret tomt: förklara hur projekt registreras (se `docs/registrera-repositories.md`).
 
 Kort sammanfattning av flödet:
 1. Hämta data via GitHub MCP (endast läsverktyg) enligt steg 2 i huvudskillen.

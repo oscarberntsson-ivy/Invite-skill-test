@@ -291,6 +291,12 @@ def analyze(snapshot: dict, entry: dict | None, prev_state: dict | None,
         "default_branch": repo.get("default_branch"),
         "registered": bool(entry),
         "invited_contributors": entry.get("invited_contributors") or [],
+        "person_name": entry.get("person_name"),
+        "github_username": entry.get("github_username"),
+        "invitation_issue": entry.get("invitation_issue"),
+        "invitation_issue_url": entry.get("invitation_issue_url"),
+        "invited_at": entry.get("invited_at"),
+        "repo_verified": entry.get("repo_verified"),
     }
     checked_at = to_iso(now)
 
@@ -310,12 +316,18 @@ def analyze(snapshot: dict, entry: dict | None, prev_state: dict | None,
     commits_known = snapshot.get("commits") is not None
     contrib, setup, merges = classify_commits(snapshot, automation_accounts)
     contributors = _build_contributors(contrib)
+    person, uname = project["person_name"], (project["github_username"] or "").lower()
+    if person and uname:
+        for p in contributors:
+            if (p["login"] or "").lower() == uname:
+                p["display"] = f"{person} ({p['login']})"
     prs = snapshot.get("pull_requests")
     branches = snapshot.get("branches")
     events = _events(snapshot, contrib, setup, merges)
     last = _last_activity(events)
 
     last_contrib_commit = max(contrib, key=_date_key) if contrib else None
+    display_by_key = {p["key"]: p["display"] for p in contributors}
     default_branch = repo.get("default_branch")
     side_branches = []
     if branches is not None:
@@ -363,8 +375,9 @@ def analyze(snapshot: dict, entry: dict | None, prev_state: dict | None,
         "contributor_count": len(contributors) if commits_known else None,
         "invited_inactive": invited_inactive,
         "last_activity": last,
-        "last_contributor": (contributor_display(last_contrib_commit.get("author_login"),
-                                                 last_contrib_commit.get("author_name"))
+        "last_contributor": (display_by_key.get(contributor_key(
+                                 last_contrib_commit.get("author_login"), last_contrib_commit.get("author_name"),
+                                 last_contrib_commit.get("author_email")))
                              if last_contrib_commit else None),
         "last_push": repo.get("pushed_at") if _push_is_activity(repo) else None,
         "branches": [b["name"] for b in branches] if branches is not None else None,
