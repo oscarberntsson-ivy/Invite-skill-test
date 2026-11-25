@@ -1,182 +1,125 @@
-# GitHub Repository Monitor
+# GitHub Repository Monitor – kodutmaningen
 
-En AI-baserad monitor i **Claude Code** som följer de GitHub-repositories som skapas av det
-automatiserade repo-flödet. Den förklarar på **enkel svenska** vad som händer i projekten, så att du
-inte behöver kunna GitHub eller programmering.
+En AI-agent i **Claude Code** som gör två saker, utan att du behöver kunna GitHub:
 
-Du kan till exempel fråga:
+1. **Bjuda in kandidater:** agenten ställer frågorna från issue-templaten och skapar en GitHub-issue.
+   Issuen startar en GitHub Action som skapar kandidatens repo `ivy-engineering-challenge-<användarnamn>`.
+2. **Följa upp:** agenten svarar på om en kandidat har committat något, och kan sammanfatta
+   aktiviteten i alla kandidaters repos.
 
-- *Har någon börjat arbeta med projektet?*
-- *När skedde senaste pushen?*
-- *Vilka har bidragit, och vad har de gjort?*
-- *Vad har förändrats sedan förra kontrollen?*
-- *Vilka projekt är fortfarande inaktiva?*
-- *Hur går det för Anna?* Personen hittas via namnet i beställnings-issuen.
+All kommunikation med GitHub går via **GitHub MCP**. **Inget sparas lokalt.** Agenten frågar GitHub
+varje gång, och svaren bygger alltid på det som finns där just då.
 
-Monitorn har två ansvarsområden:
-
-1. **Monitorering:** läsa, analysera och sammanfatta aktivitet i GitHub-repositories. Här görs
-   enbart läsning.
-2. **Issue Management:** skapa en issue i **ett** konfigurerat repository med **en** konfigurerad
-   template. Issuen triggar en GitHub Action. Agenten visar alltid ett utkast och skapar issuen
-   först efter ditt godkännande. Se [docs/skapa-issue.md](docs/skapa-issue.md).
-
-## Huvudflödet: bjud in en kandidat och följ upp
+## Flödet
 
 ```
 Du:     "Bjud in Anna Andersson till kodutmaningen"            (eller /bjud-in-kandidat)
 Agent:  ställer frågorna från issue-templaten (namn, GitHub-användarnamn, …)
 Du:     svarar
-Agent:  visar ett utkast och frågar "Vill du att jag skapar denna issue?"
-Du:     "ja"   (Claude Code frågar en gång till)
-Agent:  skapar issuen och skickar länken. GitHub Action skapar repot
-        ivy-engineering-challenge-<användarnamn> och bjuder in kandidaten.
-        Kandidaten följs nu automatiskt av monitorn.
+Agent:  kontrollerar att Anna inte redan är inbjuden, visar ett utkast och frågar
+        "Vill du att jag skapar denna issue?"
+Du:     "ja"   (Claude Code visar anropet och frågar en gång till)
+Agent:  skapar issuen och skickar länken. GitHub Action skapar repot och bjuder in Anna.
 
 Senare:
 Du:     "Har Anna committat något?"
-Agent:  "Ja – Anna Andersson (anna-a) har gjort 2 commits i …, senast 25 november 2026.
-         Sedan förra kontrollen: 2 nya."
+Agent:  "Ja – Anna Andersson (anna-a) har gjort 2 commits i IvyTechSE/ivy-engineering-challenge-anna-a,
+         senast 25 november 2026."
      eller "Nej – Anna Andersson (anna-a) har inte committat något … ännu."
+     eller "Okänt – repot kunde inte läsas. Det har kanske inte skapats ännu."
+
+Du:     "Har Anna committat något sedan i måndags?"
+Agent:  "Ja – … Sedan 23 november 2026: 1 commit."
 ```
 
-Bara kandidatens egna commits räknas. Automatiska startfiler och andras commits räknas inte. Första
-gången du frågar står det "baslinje". Därefter visas hur många commits som är nya sedan förra frågan.
+Agenten hittar kandidaten genom att läsa inbjudnings-issuerna på GitHub. Där står namn och
+GitHub-användarnamn. Bara kandidatens egna commits räknas, inte automatiska startfiler eller
+andras commits.
+
+## Kommandon
+
+Du kan alltid fråga med vanliga ord. Kommandona är genvägar.
+
+| Kommando | Vad det gör |
+|---|---|
+| `/bjud-in-kandidat Anna Andersson` | Bjud in en kandidat (frågor, utkast, issue efter godkännande) |
+| `/repo-monitor-all` | Översikt över alla kandidaters repos: aktiva, påbörjade, inaktiva och saknade |
+| `/repo-monitor-status Anna` | Status för en kandidats repo, med vad det betyder och nästa steg |
+| `/repo-monitor-activity Anna` | Tidslinje över senaste händelser |
+| `/repo-monitor-contributors Anna` | Vem som har bidragit och med vad |
+| `/repo-monitor-report Anna` | Fullständig statusrapport |
+
+## Kom igång
+
+Se [docs/installation.md](docs/installation.md). Kortversion:
+
+```bash
+git clone -b claude/github-repo-monitor-mcp-zuul3l https://github.com/oscarberntsson-ivy/Invite-skill-test.git && cd Invite-skill-test
+export GITHUB_PERSONAL_ACCESS_TOKEN=github_pat_...
+python3 -m repo_monitor issue configure --repository din-org/ditt-repo \
+  --template-path .github/ISSUE_TEMPLATE/din-template.yml --enable
+claude
+```
 
 ## Så fungerar det
 
 ```
- Du (fråga eller kommando)
-        │
-        ▼
- Claude Code ── skill: .claude/skills/repo-monitor ──┐
-        │                                            │
-        │ 1. hämtar data (ENDAST läsning)            │ 3. översätter tekniska
-        ▼                                            │    meddelanden till svenska
- GitHub MCP (officiell server, en enda)              │
-        │                                            │
-        ▼ 2. snapshot (JSON)                         │
- python3 -m repo_monitor ── status, contributors, ───┘
-                            förändringar, rapport
-        │
-        ▼
- repo-monitor/  registry.json · state/ (historik) · reports/ (rapporter)
+ Du ──► Claude Code (skills i .claude/skills/)
+            │  1. hämtar data                       ▲ 3. svarar på enkel svenska
+            ▼                                       │
+        GitHub MCP (officiell server) ──► 2. data på stdin ──► python3 -m repo_monitor
+                                                               (status, kandidat, rapport)
 ```
 
-- **GitHub MCP** är den enda kopplingen till GitHub, både för läsning och för att skapa
-  inbjudnings-issuen. Alla andra skrivverktyg är blockerade
-  i `.claude/settings.json`.
-- **`repo_monitor`** (Python, bara standardbiblioteket) räknar fram status, contributors och
-  förändringar på ett deterministiskt sätt. Siffrorna gissas aldrig av AI:n.
-- **Claude** hämtar data, kör analysen och förklarar resultatet på vardaglig svenska.
+- **GitHub MCP** är den enda kopplingen till GitHub. Det enda skrivverktyget som får användas är
+  `issue_write`, och bara för att skapa inbjudningar. Alla andra skrivverktyg är blockerade.
+- **`repo_monitor`** (Python, bara standardbiblioteket) räknar fram status och svar på ett
+  deterministiskt sätt, så siffrorna gissas aldrig. Det läser data på stdin, skriver svaret och
+  sparar ingenting.
+- **Inställningarna** är det enda som finns på disk:
+  - `repo-monitor/issue-config.json`: vilket repo och vilken template inbjudningar skapas med.
+  - `repo-monitor/discovery.json`: namnstandarden för repos och vilka template-fält som innehåller
+    namn och användarnamn.
 
-## Kom igång
-
-1. Skapa en GitHub-token med **läsbehörighet** och sätt den som miljövariabel (se
-   [docs/mcp-konfiguration.md](docs/mcp-konfiguration.md)):
-   ```bash
-   export GITHUB_PERSONAL_ACCESS_TOKEN=github_pat_...
-   ```
-2. Starta Claude Code i den här mappen och godkänn MCP-servern `github` (kontrollera med `/mcp`).
-3. Projekten hittas automatiskt. Repona heter `ivy-engineering-challenge-<github-användarnamn>`, och
-   personens namn hämtas från beställnings-issuen (se
-   [docs/registrera-repositories.md](docs/registrera-repositories.md)). Enskilda projekt kan också
-   läggas till för hand:
-   ```bash
-   python3 -m repo_monitor registry add min-org/mitt-projekt --project-name "Mitt projekt" --invited anna,erik
-   ```
-4. Fråga Claude, eller använd ett kommando:
-   ```
-   /repo-monitor-all
-   ```
-
-## Kommandon
-
-| Önskat kommando | Kommando i Claude Code | Vad det gör | Sparar kontroll? |
-|---|---|---|---|
-| `/repo-monitor:status` | `/repo-monitor-status ägare/repo` | Status för ett projekt | Nej |
-| `/repo-monitor:all` | `/repo-monitor-all` | Översikt över alla registrerade projekt | Ja |
-| `/repo-monitor:activity` | `/repo-monitor-activity ägare/repo` | Tidslinje över senaste händelser | Nej |
-| `/repo-monitor:contributors` | `/repo-monitor-contributors ägare/repo` | Vem har bidragit med vad | Nej |
-| `/repo-monitor:changes` | `/repo-monitor-changes ägare/repo` | Vad som ändrats sedan förra kontrollen | Ja |
-| `/repo-monitor:report` | `/repo-monitor-report ägare/repo` | Fullständig statusrapport (sparas i `repo-monitor/reports/`) | Ja |
-| – | `/bjud-in-kandidat Anna Andersson` | Skapar en issue från den konfigurerade templaten, efter utkast och godkännande | – |
-
-> **Varför bindestreck i stället för kolon?** Projektets egna kommandon i Claude Code (skills) får bara
-> innehålla små bokstäver, siffror och bindestreck. Kolon (`namn:kommando`) används bara för kommandon
-> från installerade plugins. Därför heter kommandona `/repo-monitor-status` och så vidare. Du kan också
-> skriva `/repo-monitor status ägare/repo` eller ställa frågan med vanliga ord. Huvudskillen
-> `repo-monitor` används då automatiskt.
-
-En **kontroll** (`changes`, `report`, `all`) sparar nuläget som jämförelsepunkt. Första gången blir
-resultatet en **baslinje**. Därefter visas vad som har hänt sedan den senaste kontrollen.
-
-## Statusrapporter
-
-Varje rapport innehåller:
-
-- **Projektinformation:** projektnamn, repository och skapandedatum.
-- **Aktivitet:** antal commits, antal contributors, senaste aktivitet, senaste push, senaste
-  contributor, öppna och mergade pull requests samt grenar.
-- **Statusbedömning** i två delar, eftersom statusarna kan överlappa:
+## Statusbedömning
 
 | Kodstatus | Betyder |
 |---|---|
-| INAKTIVT | Ingen kod från contributors. Automatiska startfiler räknas inte. |
+| INAKTIVT | Ingen kod från kandidaten eller andra contributors. Automatiska startfiler räknas inte. |
 | PÅBÖRJAT | Minst en kodcommit. |
 | AKTIVT | Minst två contributors, eller commits på minst två olika dagar. |
 | OKÄNT | Commits kunde inte hämtas. Det är *inte* samma sak som inaktivt. |
-| EJ TILLGÄNGLIGT | Repositoryt kunde inte läsas, till exempel på grund av behörighet. |
+| EJ TILLGÄNGLIGT | Repot kunde inte läsas, till exempel för att det inte har skapats ännu. |
 
-| Granskningsstatus | Betyder |
-|---|---|
-| UNDER GRANSKNING | Det finns öppna pull requests. |
-| MERGAT | Minst en pull request har mergats till målgrenen. |
-| INGA PULL REQUESTS | Inga förslag på ändringar har skapats. |
+Granskningsstatus redovisas separat: **UNDER GRANSKNING** (öppna pull requests), **MERGAT** eller
+**INGA PULL REQUESTS**.
 
-- **Vad betyder det?** och **Nästa steg**, i enkel svenska.
-- **Förändringar sedan förra kontrollen**, eller en tydlig markering att det är en baslinje.
-- **Ordlista** för de tekniska orden.
-- **⚠️ Information som inte kunde hämtas**, om något saknas.
+## Säkerhet
 
-Monitorn skiljer på *repository skapat*, *commit*, *push*, *pull request skapad* och *mergad*. Kod på
-en sidogren räknas inte som mergad, och en öppen pull request räknas inte som godkänd.
+- Issues kan bara skapas i det konfigurerade repot, och bara som *nya* issues. Det kontrolleras av
+  spärren `.claude/hooks/issue_guard.py`.
+- Agenten visar alltid ett utkast och väntar på ditt ja. Claude Code frågar sedan en gång till.
+- Alla andra skrivverktyg är blockerade: push, filändringar, branches, pull requests och kommentarer.
+- Token läses från miljövariabeln `GITHUB_PERSONAL_ACCESS_TOKEN`. Den ligger aldrig i koden.
 
 ## Filer
 
 | Sökväg | Innehåll |
 |---|---|
-| `.mcp.json` | GitHub MCP-servern `github` (officiell, begränsade toolsets, token från miljövariabel) |
-| `.claude/settings.json` | Tillåtna läsverktyg, blockerade skrivverktyg och hooks |
-| `.claude/hooks/issue_guard.py` | Spärr: issues skapas bara i det konfigurerade repot och bara enligt ett godkänt utkast |
-| `repo-monitor/issue-config.json` | Konfiguration för issue-skapande (repository och template) |
-| `repo-monitor/issue-drafts/` | Sparade utkast och skapade issues |
-| `.claude/skills/repo-monitor/SKILL.md` | Huvudskillen: hela arbetsflödet och reglerna |
-| `.claude/skills/repo-monitor-*/SKILL.md` | De sex kommandona |
-| `repo_monitor/` | Analys, statusmodell, historik och svenska rapporter |
-| `repo-monitor/registry.json` | Register över projekt som följs |
-| `repo-monitor/discovery.json` | Namnstandard för repos och vilka template-fält som innehåller namn och användarnamn |
-| `repo-monitor/state/` | Historik per repository: senaste kontroll, kända commit-SHA:er, PR-status och grenar |
-| `repo-monitor/reports/` | Sparade rapporter (`latest.md` och en fil per tidpunkt) |
-| `repo-monitor/snapshots/` | Tillfällig rådata från MCP (ignoreras av git) |
-| `tests/` | Tester med mockad GitHub-data |
-| `docs/` | Konfiguration, registrering, snapshot-format och felsökning |
-
-## Tester
-
-```bash
-python3 -m unittest discover -s tests -v
-```
-
-Testerna täcker: repository utan commits, med en commit, med flera contributors, med flera grenar,
-med öppna och mergade pull requests, utan ny aktivitet sedan förra kontrollen, repository som inte är
-tillgängligt, flera repositories med olika aktivitetsnivåer, delvis saknad data samt normalisering av
-MCP:s råformat.
+| `.mcp.json` | GitHub MCP-servern `github` |
+| `.claude/settings.json` | Tillåtna läsverktyg, blockerade skrivverktyg och spärren |
+| `.claude/hooks/issue_guard.py` | Spärr för att skapa issues |
+| `.claude/skills/` | `bjud-in-kandidat`, `repo-monitor` och kommandona `repo-monitor-*` |
+| `repo_monitor/` | Analys, statusmodell, template-tolkning och svenska rapporter |
+| `repo-monitor/*.json` | Inställningar (se ovan) |
+| `tests/` | Tester med mockad GitHub-data (`python3 -m unittest discover -s tests`) |
+| `docs/` | Installation, MCP-konfiguration, inbjudningar, kandidater, snapshot-format och felsökning |
 
 ## Dokumentation
 
+- [Installation](docs/installation.md)
 - [MCP-konfiguration och behörigheter](docs/mcp-konfiguration.md)
-- [Registrera repositories (och koppla in repo-flödet)](docs/registrera-repositories.md)
+- [Bjuda in kandidat (issue från templaten)](docs/skapa-issue.md)
+- [Hur kandidater och repos hittas](docs/hitta-kandidater.md)
 - [Snapshot-format](docs/snapshot-format.md)
-- [Skapa issue från templaten](docs/skapa-issue.md)
 - [Felsökning](docs/felsokning.md)

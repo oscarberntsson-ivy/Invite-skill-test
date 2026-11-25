@@ -1,7 +1,15 @@
 # Snapshot-format
 
 En snapshot är det JSON-dokument som Claude sätter ihop av GitHub MCP-svaren och skickar till
-`python3 -m repo_monitor analyze`. Skapa en tom mall med:
+`python3 -m repo_monitor analyze` på **stdin**. Inget sparas på disk. Exempel:
+
+```bash
+python3 -m repo_monitor analyze --view candidate --since 2026-11-20 <<'JSON'
+{ …snapshot… }
+JSON
+```
+
+Flera repos skickas till `overview` som en JSON-lista med snapshots. Skapa en tom mall med:
 
 ```bash
 python3 -m repo_monitor template ägare/namn
@@ -22,6 +30,10 @@ Det är så monitorn skiljer på *ingen aktivitet* och *saknad information*.
 {
   "fetched_at": "2026-11-24T12:00:00Z",
   "access": {"ok": true, "error": null},     // ok=false => EJ TILLGÄNGLIGT
+  "person": {                                 // valfritt: kandidaten (snapshot_person från `people`)
+    "name": "Anna Andersson", "username": "anna-a",
+    "issue_number": 12, "issue_url": "https://github.com/…/issues/12", "invited_at": "2026-11-25T08:00:00Z"
+  },
   "repo": {                                   // search_repositories-objekt eller förenklat
     "owner": "org",                           // sträng eller {"login": "org"}; alternativt "full_name"
     "name": "repo",

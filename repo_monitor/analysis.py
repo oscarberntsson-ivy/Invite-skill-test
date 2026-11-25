@@ -210,93 +210,25 @@ def _last_activity(events) -> dict | None:
     return None
 
 
-def _changes(snapshot, contributors, all_commits_known, prev_state) -> dict:
-    if not prev_state or not prev_state.get("last_checked_at"):
-        return {"baseline": True}
-    ch = {
-        "baseline": False,
-        "since": prev_state["last_checked_at"],
-        "unknown": [],
-        "new_commits": [],
-        "new_setup_commits": 0,
-        "new_contributors": [],
-        "new_prs": [],
-        "merged_prs": [],
-        "closed_prs": [],
-        "new_branches": [],
-        "removed_branches": [],
-        "updated_branches": [],
-    }
-    # Commits
-    if all_commits_known is None:
-        ch["unknown"].append("commits")
-    else:
-        known = set(prev_state.get("known_commit_shas") or [])
-        contrib, setup = all_commits_known
-        ch["new_commits"] = [c for c in contrib if c["sha"] not in known]
-        ch["new_setup_commits"] = sum(1 for c in setup if c["sha"] not in known)
-        prev_people = set(prev_state.get("contributors") or [])
-        ch["new_contributors"] = [p for p in contributors if p["key"] not in prev_people]
-    # Pull requests
-    prs = snapshot.get("pull_requests")
-    if prs is None:
-        ch["unknown"].append("pull requests")
-    else:
-        prev_prs = prev_state.get("pull_requests") or {}
-        for pr in prs:
-            old = prev_prs.get(str(pr["number"]))
-            if old is None:
-                ch["new_prs"].append(pr)
-                if pr["state"] == "merged":
-                    ch["merged_prs"].append(pr)
-                elif pr["state"] == "closed":
-                    ch["closed_prs"].append(pr)
-            elif old != pr["state"]:
-                if pr["state"] == "merged":
-                    ch["merged_prs"].append(pr)
-                elif pr["state"] == "closed":
-                    ch["closed_prs"].append(pr)
-    # Branches
-    branches = snapshot.get("branches")
-    if branches is None:
-        ch["unknown"].append("branches")
-    else:
-        prev_heads = prev_state.get("branch_heads") or {}
-        names = {b["name"]: b.get("sha") for b in branches}
-        ch["new_branches"] = sorted(n for n in names if n not in prev_heads)
-        ch["removed_branches"] = sorted(n for n in prev_heads if n not in names)
-        ch["updated_branches"] = sorted(
-            n for n, sha in names.items()
-            if n in prev_heads and sha and prev_heads[n] and sha != prev_heads[n]
-        )
-    ch["nothing_new"] = not any([
-        ch["new_commits"], ch["new_contributors"], ch["new_prs"], ch["merged_prs"],
-        ch["closed_prs"], ch["new_branches"], ch["removed_branches"], ch["updated_branches"],
-        ch["new_setup_commits"],
-    ])
-    return ch
-
-
-def analyze(snapshot: dict, entry: dict | None, prev_state: dict | None,
-            automation_accounts, now) -> dict:
+def analyze(snapshot: dict, automation_accounts, now, since=None) -> dict:
+    """Analyserar en snapshot. `since` (datum) räknar commits från och med den tidpunkten."""
     repo = snapshot["repo"]
-    entry = entry or {}
+    person = snapshot.get("person") or {}
+    username = person.get("username")
     project = {
         "owner": repo["owner"],
         "name": repo["name"],
         "full_name": f"{repo['owner']}/{repo['name']}",
-        "project_name": entry.get("project_name") or repo["name"],
-        "url": repo.get("url") or entry.get("url"),
-        "created_at": repo.get("created_at") or entry.get("created_at"),
+        "project_name": person.get("name") or username or repo["name"],
+        "url": repo.get("url"),
+        "created_at": repo.get("created_at"),
         "default_branch": repo.get("default_branch"),
-        "registered": bool(entry),
-        "invited_contributors": entry.get("invited_contributors") or [],
-        "person_name": entry.get("person_name"),
-        "github_username": entry.get("github_username"),
-        "invitation_issue": entry.get("invitation_issue"),
-        "invitation_issue_url": entry.get("invitation_issue_url"),
-        "invited_at": entry.get("invited_at"),
-        "repo_verified": entry.get("repo_verified"),
+        "invited_contributors": [username] if username else [],
+        "person_name": person.get("name"),
+        "github_username": username,
+        "invitation_issue": person.get("issue_number"),
+        "invitation_issue_url": person.get("issue_url"),
+        "invited_at": person.get("invited_at"),
     }
     checked_at = to_iso(now)
 
@@ -309,8 +241,6 @@ def analyze(snapshot: dict, entry: dict | None, prev_state: dict | None,
             "review_status": [EJ_TILLGANGLIGT],
             "data_gaps": ["hela repositoryt"],
             "errors": snapshot.get("errors") or [],
-            "previous_summary": (prev_state or {}).get("summary"),
-            "previous_checked_at": (prev_state or {}).get("last_checked_at"),
         }
 
     commits_known = snapshot.get("commits") is not None
@@ -353,11 +283,9 @@ def analyze(snapshot: dict, entry: dict | None, prev_state: dict | None,
     active_logins = {(p["login"] or "").lower() for p in contributors}
     invited_inactive = [i for i in invited if i.lower() not in active_logins] if commits_known else []
 
-    changes = _changes(
-        snapshot, contributors,
-        (contrib, setup + merges) if commits_known else None,
-        prev_state,
-    )
+    since_iso = to_iso(parse_iso(since)) if since else None
+    since_commits = ([c for c in contrib if (c.get("date") or "") >= since_iso]
+                     if since_iso and commits_known else None)
 
     return {
         "project": project,
@@ -387,52 +315,6 @@ def analyze(snapshot: dict, entry: dict | None, prev_state: dict | None,
         "merged_prs": [p for p in prs if p["state"] == "merged"] if prs is not None else None,
         "closed_prs": [p for p in prs if p["state"] == "closed"] if prs is not None else None,
         "events": events,
-        "changes": changes,
-        "_all_commits": (contrib + setup + merges) if commits_known else None,
+        "since": since_iso,
+        "since_commits": since_commits,
     }
-
-
-def build_state(analysis: dict, snapshot: dict, prev_state: dict | None) -> dict:
-    """Ny historikpost. Delar som inte kunde hämtas behåller föregående värde."""
-    prev = prev_state or {}
-    p = analysis["project"]
-    state = {
-        "repo": p["full_name"],
-        "last_attempt_at": analysis["checked_at"],
-        "last_attempt_ok": analysis["access"]["ok"],
-        "last_checked_at": prev.get("last_checked_at"),
-        "latest_commit_sha": prev.get("latest_commit_sha"),
-        "known_commit_shas": prev.get("known_commit_shas") or [],
-        "contributors": prev.get("contributors") or [],
-        "pull_requests": prev.get("pull_requests") or {},
-        "branch_heads": prev.get("branch_heads") or {},
-        "summary": prev.get("summary"),
-        "last_report": prev.get("last_report"),
-    }
-    if not analysis["access"]["ok"]:
-        state["last_error"] = analysis["access"].get("error")
-        return state
-
-    state["last_checked_at"] = analysis["checked_at"]
-    state.pop("last_error", None)
-    all_commits = analysis.get("_all_commits")
-    if all_commits is not None:
-        state["known_commit_shas"] = sorted({c["sha"] for c in all_commits})
-        newest = max(all_commits, key=_date_key) if all_commits else None
-        state["latest_commit_sha"] = newest["sha"] if newest else None
-        state["contributors"] = sorted(c["key"] for c in analysis["contributors"])
-    if snapshot.get("pull_requests") is not None:
-        state["pull_requests"] = {str(pr["number"]): pr["state"] for pr in snapshot["pull_requests"]}
-    if snapshot.get("branches") is not None:
-        state["branch_heads"] = {b["name"]: b.get("sha") for b in snapshot["branches"]}
-    last = analysis.get("last_activity")
-    state["summary"] = {
-        "code_status": analysis["code_status"],
-        "review_status": analysis["review_status"],
-        "commit_count": analysis.get("commit_count"),
-        "contributor_count": analysis.get("contributor_count"),
-        "open_pr_count": len(analysis["open_prs"]) if analysis.get("open_prs") is not None else None,
-        "last_activity": last.get("date") if last else None,
-        "last_contributor": analysis.get("last_contributor"),
-    }
-    return state

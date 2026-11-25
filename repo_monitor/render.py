@@ -68,9 +68,6 @@ def _header(a) -> list[str]:
         lines.append(f"- **Beställd via issue:** {ref}{when}")
     lines.append(f"- **Skapat:** {fmt_date(p['created_at']) if p['created_at'] else 'okänt (kunde inte hämtas)'}")
     lines.append(f"- **Kontrollerat:** {fmt_datetime(a['checked_at'])} ({LOCAL_TZ_LABEL})")
-    if not p["registered"]:
-        lines.append("- *Obs: projektet finns inte i registret. Lägg till det med "
-                     "`python3 -m repo_monitor registry add " + p["full_name"] + "`.*")
     lines.append("")
     return lines
 
@@ -92,13 +89,8 @@ def _unavailable(a) -> list[str]:
               "- Repositoryt har bytt namn, flyttats eller tagits bort.",
               "- Repositoryt är privat och GitHub-token saknar åtkomst till det.",
               "- Tillfälligt problem med anslutningen till GitHub (MCP).",
-              "", "**Nästa steg:** Kontrollera namnet i registret och att GitHub-token har "
-              "läsbehörighet till repositoryt. Se docs/felsokning.md."]
-    prev = a.get("previous_summary")
-    if prev:
-        lines += ["", f"Senast lyckade kontroll ({fmt_datetime(a.get('previous_checked_at'))}): "
-                  f"kodstatus {prev.get('code_status')}, "
-                  f"{prev.get('commit_count')} commits, {prev.get('contributor_count')} contributors."]
+              "", "**Nästa steg:** Kontrollera repositoryts namn och att GitHub-token har "
+              "läsbehörighet till det. Se docs/felsokning.md."]
     return lines
 
 
@@ -287,45 +279,6 @@ def render_contributors(a) -> list[str]:
     return lines
 
 
-def render_changes(a) -> list[str]:
-    ch = a.get("changes") or {}
-    lines = ["", "### Förändringar sedan förra kontrollen", ""]
-    if ch.get("baseline"):
-        return lines + [
-            "**Detta är den första kontrollen (baslinje).** Det finns ingen tidigare kontroll att jämföra med. "
-            "Det som visas i rapporten är nuläget. Nästa gång visas vad som har ändrats sedan i dag."
-        ]
-    lines.append(f"Jämfört med kontrollen {fmt_datetime(ch['since'])}:")
-    lines.append("")
-    if ch.get("nothing_new") and not ch.get("unknown"):
-        lines.append("- **Inget nytt har hänt.** Inga nya kodändringar, pull requests eller grenar.")
-        return lines
-    for c in ch.get("new_commits") or []:
-        who = A.contributor_display(c.get("author_login"), c.get("author_name"))
-        lines.append(f"- Ny kodändring av {who} ({fmt_date(c.get('date'))}): ”{(c.get('message') or '').splitlines()[0] if c.get('message') else ''}”")
-    if ch.get("new_setup_commits"):
-        lines.append(f"- {_plural(ch['new_setup_commits'], 'ny automatisk commit/merge-commit', 'nya automatiska commits/merge-commits')}.")
-    for p in ch.get("new_contributors") or []:
-        lines.append(f"- **Ny contributor:** {p['display']} har bidragit för första gången.")
-    for pr in ch.get("new_prs") or []:
-        lines.append(f"- Nytt förslag på ändringar: pull request #{pr['number']} ”{pr['title']}” av {pr.get('author') or 'okänd'}.")
-    for pr in ch.get("merged_prs") or []:
-        lines.append(f"- Pull request #{pr['number']} ”{pr['title']}” har **mergats** (förts in i huvudprojektet).")
-    for pr in ch.get("closed_prs") or []:
-        lines.append(f"- Pull request #{pr['number']} ”{pr['title']}” stängdes utan att föras in.")
-    for b in ch.get("new_branches") or []:
-        lines.append(f"- Ny gren (branch): ”{b}”.")
-    for b in ch.get("removed_branches") or []:
-        lines.append(f"- Grenen ”{b}” finns inte längre.")
-    for b in ch.get("updated_branches") or []:
-        lines.append(f"- Grenen ”{b}” har fått nya ändringar.")
-    if ch.get("nothing_new") and ch.get("unknown"):
-        lines.append("- Inget nytt hittades bland det som kunde kontrolleras.")
-    for u in ch.get("unknown") or []:
-        lines.append(f"- ⚠️ {u.capitalize()} kunde inte kontrolleras – eventuella förändringar där är okända.")
-    return lines
-
-
 def render_candidate(a: dict) -> str:
     """Kort svar: har den inbjudna personen committat något?"""
     p = a["project"]
@@ -349,14 +302,11 @@ def render_candidate(a: dict) -> str:
         line += f", senast {fmt_date(last)}." if last else "."
     else:
         line = f"**Nej** – {who} har inte committat något i {repo} ännu."
-    ch = a.get("changes") or {}
-    if ch.get("baseline"):
-        line += "\n\nSedan förra kontrollen: baslinje (första kontrollen)."
-    elif "commits" not in (ch.get("unknown") or []):
-        new = [c for c in ch.get("new_commits") or []
+    if a.get("since_commits") is not None:
+        new = [c for c in a["since_commits"]
                if not user or (c.get("author_login") or "").lower() == user.lower()]
-        line += (f"\n\nSedan förra kontrollen ({fmt_date(ch['since'])}): "
-                 + (f"{len(new)} nya." if new else "inga nya."))
+        line += (f" Sedan {fmt_date(a['since'])}: "
+                 + (f"{len(new)} {'commit' if len(new) == 1 else 'commits'}." if new else "inga commits."))
     return line + "\n"
 
 
@@ -374,12 +324,8 @@ def render(a: dict, view: str = "report") -> str:
     elif view == "contributors":
         lines += [f"**Antal contributors:** {_fmt_count(a['contributor_count'], 'person', 'personer')}"]
         lines += render_contributors(a)
-    elif view == "changes":
-        lines += [f"**KODSTATUS: {a['code_status']}** · **GRANSKNING: {_review_line(a)}**"]
-        lines += render_changes(a)
     else:  # report
         lines += _status_block(a) + _meaning(a) + _next_steps(a)
-        lines += render_changes(a)
         lines += render_contributors(a)
         lines += render_activity(a)
         lines += ["", "### Ordlista", ""] + [f"- **{w}:** {d}" for w, d in GLOSSARY]
@@ -391,10 +337,10 @@ def render(a: dict, view: str = "report") -> str:
 # Översikt över flera repositories
 # --------------------------------------------------------------------------
 
-def render_overview(analyses: list[dict], unchecked: list[dict], checked_at) -> str:
-    lines = ["## ÖVERSIKT: alla registrerade projekt", "",
+def render_overview(analyses: list[dict], checked_at) -> str:
+    lines = ["## ÖVERSIKT: alla challenge-repositories", "",
              f"Kontrollerat: {fmt_datetime(checked_at)} ({LOCAL_TZ_LABEL})", ""]
-    total = len(analyses) + len(unchecked)
+    total = len(analyses)
     counts: dict[str, int] = {}
     for a in analyses:
         counts[a["code_status"]] = counts.get(a["code_status"], 0) + 1
@@ -405,8 +351,6 @@ def render_overview(analyses: list[dict], unchecked: list[dict], checked_at) -> 
             summary.append(f"{counts[s]} {s}")
     if review:
         summary.append(f"{review} med pull requests som väntar på granskning")
-    if unchecked:
-        summary.append(f"{len(unchecked)} ej kontrollerade")
     lines.append("**Sammanfattning:** " + ", ".join(summary) + ".")
     lines += ["", "| Projekt | Kodstatus | Granskning | Commits | Contributors | Öppna PR | Senaste aktivitet |",
               "|---|---|---|---|---|---|---|"]
@@ -424,8 +368,6 @@ def render_overview(analyses: list[dict], unchecked: list[dict], checked_at) -> 
             "?" if a.get("open_prs") is None else len(a["open_prs"]),
             fmt_date(last["date"]) if last else "–",
         ))
-    for e in unchecked:
-        lines.append(f"| {e.get('project_name') or e['name']} | EJ KONTROLLERAT | – | – | – | – | – |")
 
     inactive = [a["project"]["project_name"] for a in analyses if a["code_status"] == A.INAKTIVT]
     lines += ["", "### Inaktiva projekt", ""]
@@ -434,34 +376,13 @@ def render_overview(analyses: list[dict], unchecked: list[dict], checked_at) -> 
     if unavailable:
         lines += ["", "### Kunde inte kontrolleras", ""]
         for a in unavailable:
-            lines.append(f"- {a['project']['full_name']}: {a['access'].get('error') or 'okänt fel'} "
+            hint = (" – repot har kanske inte skapats ännu (inbjudan finns)"
+                    if a["project"].get("invitation_issue") else "")
+            lines.append(f"- {a['project']['full_name']}: {a['access'].get('error') or 'okänt fel'}{hint} "
                          "(betyder inte att projektet är inaktivt)")
     partial = [a for a in analyses if a.get("data_gaps") and a["code_status"] != A.EJ_TILLGANGLIGT]
     if partial:
         lines += ["", "### Ofullständig information", ""]
         for a in partial:
             lines.append(f"- {a['project']['full_name']}: kunde inte hämta {', '.join(a['data_gaps'])}")
-    changed = [a for a in analyses if a.get("changes") and not a["changes"].get("baseline")
-               and not a["changes"].get("nothing_new")]
-    baseline = [a for a in analyses if (a.get("changes") or {}).get("baseline")]
-    lines += ["", "### Förändringar sedan förra kontrollen", ""]
-    if changed:
-        for a in changed:
-            ch = a["changes"]
-            bits = []
-            if ch["new_commits"]:
-                bits.append(_plural(len(ch["new_commits"]), "ny kodändring", "nya kodändringar"))
-            if ch["new_contributors"]:
-                bits.append(_plural(len(ch["new_contributors"]), "ny contributor", "nya contributors"))
-            if ch["new_prs"]:
-                bits.append(_plural(len(ch["new_prs"]), "ny pull request", "nya pull requests"))
-            if ch["merged_prs"]:
-                bits.append(_plural(len(ch["merged_prs"]), "pull request mergad", "pull requests mergade"))
-            if ch["new_branches"]:
-                bits.append(_plural(len(ch["new_branches"]), "ny gren", "nya grenar"))
-            lines.append(f"- {a['project']['project_name']}: " + (", ".join(bits) or "mindre ändringar"))
-    elif any(a.get("changes") and not a["changes"].get("baseline") for a in analyses):
-        lines.append("- Inga nya förändringar i de projekt som har kontrollerats tidigare.")
-    if baseline:
-        lines.append("- Första kontrollen (baslinje) för: " + ", ".join(a["project"]["project_name"] for a in baseline))
     return "\n".join(lines).rstrip() + "\n"

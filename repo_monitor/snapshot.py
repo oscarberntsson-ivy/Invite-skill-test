@@ -196,6 +196,22 @@ def _normalize_prs(raw: dict):
     return out
 
 
+def _normalize_person(raw) -> dict | None:
+    """Uppgifter om den inbjudna personen (från inbjudnings-issuen), om de finns."""
+    if not isinstance(raw, dict):
+        return None
+    username = raw.get("username") or raw.get("github_username")
+    if isinstance(username, str):
+        username = username.strip().lstrip("@") or None
+    return {
+        "name": raw.get("name") or raw.get("person_name") or None,
+        "username": username,
+        "issue_number": raw.get("issue_number"),
+        "issue_url": raw.get("issue_url"),
+        "invited_at": to_iso(parse_iso(raw.get("invited_at") or raw.get("issue_created_at"))),
+    }
+
+
 def normalize(raw: dict) -> dict:
     """Returnerar en normaliserad snapshot (se docs/snapshot-format.md)."""
     if not isinstance(raw, dict):
@@ -219,6 +235,7 @@ def normalize(raw: dict) -> dict:
             "repo": repo,
             "fetched_at": to_iso(parse_iso(raw.get("fetched_at"))),
             "access": access,
+            "person": _normalize_person(raw.get("person")),
             "branches": None,
             "commits": None,
             "pull_requests": None,
@@ -229,6 +246,7 @@ def normalize(raw: dict) -> dict:
         "repo": repo,
         "fetched_at": to_iso(parse_iso(raw.get("fetched_at"))),
         "access": access,
+        "person": _normalize_person(raw.get("person")),
         "branches": _normalize_branches(raw),
         "commits": _normalize_commits(raw),
         "pull_requests": _normalize_prs(raw),

@@ -17,14 +17,12 @@
       "mcp__github__list_issues",
       "mcp__github__issue_read",
       "mcp__github__get_label",
-      "mcp__github__list_repository_collaborators",
-      "Write(repo-monitor/snapshots/**)",
-      "Write(repo-monitor/issue-work/**)"
+      "mcp__github__list_repository_collaborators"
     ],
     "ask": [
       "mcp__github__issue_write",
       "Bash(python3 -m repo_monitor issue configure:*)",
-      "Bash(python3 -m repo_monitor issue record:*)"
+      "Bash(python3 -m repo_monitor discover configure:*)"
     ],
     "deny": [
       "mcp__github__create_or_update_file",
@@ -51,10 +49,10 @@
       "mcp__github__actions_run_trigger",
       "Edit(repo-monitor/issue-config.json)",
       "Write(repo-monitor/issue-config.json)",
-      "Edit(repo-monitor/issue-drafts/**)",
-      "Write(repo-monitor/issue-drafts/**)",
       "Edit(.claude/hooks/**)",
-      "Write(.claude/hooks/**)"
+      "Write(.claude/hooks/**)",
+      "Edit(repo-monitor/discovery.json)",
+      "Write(repo-monitor/discovery.json)"
     ]
   },
   "hooks": {
@@ -65,17 +63,6 @@
           {
             "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/issue_guard.py\" pre"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "mcp__github__issue_write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/issue_guard.py\" post"
           }
         ]
       }

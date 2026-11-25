@@ -1,22 +1,19 @@
 ---
 name: repo-monitor-status
-description: "/repo-monitor:status – Visar status för ett repository: kodstatus, granskningsstatus, antal commits och contributors, senaste aktivitet, vad det betyder och nästa steg."
-argument-hint: "ägare/repo eller personens namn"
+description: "/repo-monitor:status – Visar status för en kandidats repo: kodstatus, granskningsstatus, antal commits och contributors, senaste aktivitet, vad det betyder och nästa steg."
+argument-hint: "namn, GitHub-användarnamn eller ägare/repo"
 disable-model-invocation: true
-allowed-tools: mcp__github__get_me, mcp__github__search_repositories, mcp__github__list_commits, mcp__github__get_commit, mcp__github__list_branches, mcp__github__list_pull_requests, mcp__github__pull_request_read, Bash(python3 -m repo_monitor:*), Read, Write(repo-monitor/snapshots/**)
+allowed-tools: mcp__github__get_me, mcp__github__search_repositories, mcp__github__list_commits, mcp__github__get_commit, mcp__github__list_branches, mcp__github__list_pull_requests, mcp__github__pull_request_read, mcp__github__list_issues, Bash(python3 -m repo_monitor:*)
 ---
 
 # /repo-monitor:status
 
-Visar status för ett repository: kodstatus, granskningsstatus, antal commits och contributors, senaste aktivitet, vad det betyder och nästa steg.
+Visar status för en kandidats repo: kodstatus, granskningsstatus, antal commits och contributors, senaste aktivitet, vad det betyder och nästa steg.
 
-Läs och följ arbetsflödet i `.claude/skills/repo-monitor/SKILL.md` med **läge `status`**.
+Följ arbetsflödet i `.claude/skills/repo-monitor/SKILL.md` med **läge `status`**.
 
-Repository eller person: `$ARGUMENTS`. Är det ett namn eller GitHub-användarnamn (inte `ägare/repo`): kör `python3 -m repo_monitor registry find "<namn>"` (synkronisera enligt huvudskillen om inget hittas). Om det är tomt, kör `python3 -m repo_monitor registry list` – finns exakt ett registrerat projekt används det, annars fråga användaren vilket projekt som avses.
+Kandidat eller repo: `$ARGUMENTS`. Är det ett namn eller GitHub-användarnamn: hitta kandidaten (steg A i huvudskillen, `--query`). Är det tomt: fråga vilken kandidat som avses. Hämta sedan data (steg B) och kör `python3 -m repo_monitor analyze --view status` med snapshoten på stdin.
 
-Kort sammanfattning av flödet:
-1. Hämta data via GitHub MCP (endast läsverktyg) enligt steg 2 i huvudskillen.
-2. Skriv snapshot till `repo-monitor/snapshots/ÄGARE__NAMN.json`.
-3. Kör `python3 -m repo_monitor analyze <snapshot> --view status`.
-4. Presentera resultatet på enkel svenska enligt steg 5 i huvudskillen – behåll alla fakta, översätt
-   tekniska commit-meddelanden, hitta aldrig på aktivitet och redovisa information som saknas.
+All data hämtas från GitHub via GitHub MCP (endast läsverktyg) och skickas till verktyget på stdin.
+Inget sparas lokalt. Presentera resultatet på enkel svenska enligt steg D i huvudskillen: behåll alla
+fakta, översätt tekniska commit-meddelanden, hitta aldrig på aktivitet och redovisa information som saknas.

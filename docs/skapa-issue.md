@@ -20,9 +20,11 @@ Agenten gör följande:
 2. Hämtar templaten från repositoryt. Det kontrollerar samtidigt att repositoryt finns och går att läsa.
 3. Läser templatens fält och frågar efter de uppgifter som saknas.
 4. Kontrollerar att templatens labels finns i repositoryt, och vilka som kan tilldelas (assignees).
+   Kontrollerar också bland befintliga issues att kandidaten inte redan har bjudits in. Finns en
+   öppen inbjudan för samma GitHub-användarnamn skapas ingen ny.
 5. Visar ett **utkast**: repository, template, titel, labels, assignees och den exakta beskrivningen.
 6. Frågar **"Vill du att jag skapar denna issue?"**.
-7. Efter ditt ja frågar Claude Code en gång till och visar repository och titel.
+7. Efter ditt ja visar Claude Code exakt det som ska skickas och frågar en gång till.
 8. Skapar issuen och svarar med länken.
 
 ## Konfigurera (när du har uppgifterna)
@@ -80,12 +82,11 @@ tokenens ägare uppfylla det villkoret.
 |---|---|
 | Bara `issue_write` med `method: create`. Befintliga issues ändras aldrig. | Spärren `.claude/hooks/issue_guard.py` |
 | Bara det konfigurerade repositoryt | Spärren |
-| Bara exakt det innehåll som visats i ett sparat utkast | Spärren jämför titel, beskrivning, labels, assignees och milestone |
-| Samma utkast kan inte skapas två gånger | Spärren och PostToolUse-hooken |
+| Ingen dubbel inbjudan för samma GitHub-användarnamn | `issue draft` kontrollerar mot befintliga issues på GitHub |
 | Claude Code frågar alltid innan issuen skickas | `ask` i `.claude/settings.json` och spärrens beslut `ask` |
 | `issue_write` är det enda skrivverktyget som tillåts. Det kräver alltid bekräftelse. | `ask` på `mcp__github__issue_write`, `deny` på alla andra skrivverktyg |
 | Kommentarer, sub-issues och andra skrivverktyg är spärrade | `deny` i `.claude/settings.json` |
-| Templates, konfiguration, utkast och spärren kan inte ändras av agenten | `deny` på Edit/Write |
+| Templates, konfiguration och spärren kan inte ändras av agenten | `deny` på Edit/Write |
 | Labels och milestones måste finnas i repositoryt | `issue draft` stoppar utkastet annars |
 | Templatens struktur måste följas | `issue draft` underkänner egna fält och saknade rubriker |
 | Fel i spärren nekar alltid | Spärren är "fail closed" |
@@ -108,9 +109,8 @@ PyYAML används om det finns installerat. Annars används en inbyggd tolk.
 | "Issue-funktionen är inte konfigurerad" | Kör `issue configure` (se ovan). |
 | Templaten kunde inte hämtas (404) | Kontrollera `repository`, `template_path` och `template_ref`, och att `GITHUB_PERSONAL_ACCESS_TOKEN` kan läsa repositoryt. |
 | "Labeln … finns inte" | Skapa labeln i repositoryt eller ändra `extra_labels`. Templatens labels kan behövas för att workflowen ska triggas. |
-| `mcp__github__issue_write` saknas | Kontrollera med `/mcp` att `github` är ansluten, att `X-MCP-Toolsets` innehåller `issues`, och att `X-MCP-Readonly` *inte* är satt. Utkastet är sparat. |
+| `mcp__github__issue_write` saknas | Kontrollera med `/mcp` att `github` är ansluten, att `X-MCP-Toolsets` innehåller `issues`, och att `X-MCP-Readonly` *inte* är satt. |
 | 403 när issuen skapas | Token saknar *Issues: Read and write* på det konfigurerade repositoryt. |
-| "Innehållet matchar inget godkänt utkast" | Utkastet ändrades efter att det visades. Skapa ett nytt utkast. |
 | GitHub Action startade inte | Kontrollera i repositoryts Actions-flik att workflowen lyssnar på `issues: [opened]` (eller `labeled`) och att eventuella villkor på label och titel uppfylls. |
 
-Visa sparade utkast: `python3 -m repo_monitor issue list`.
+Inget sparas lokalt: utkastet finns bara i konversationen. Avbryts den får du börja om.

@@ -3,11 +3,3 @@ __pycache__/
 .env
 .env.*
 .claude/settings.local.json
-
-# Temporära MCP-snapshots (rådata från GitHub, återskapas vid varje kontroll)
-repo-monitor/snapshots/*
-!repo-monitor/snapshots/.gitkeep
-
-# Lokala kopior av templates och svar vid issue-skapande
-repo-monitor/issue-work/*
-!repo-monitor/issue-work/.gitkeep

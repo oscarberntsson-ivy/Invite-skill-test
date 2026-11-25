@@ -3,6 +3,7 @@
   "repo_name_pattern": "^ivy-engineering-chall[ae]nge-(?P<username>[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)$",
   "repo_name_template": "ivy-engineering-challenge-{username}",
   "issues_repository": null,
+  "automation_accounts": [],
   "issue_labels": [],
   "issue_fields": {
     "name": [

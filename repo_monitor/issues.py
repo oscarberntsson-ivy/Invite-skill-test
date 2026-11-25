@@ -1,27 +1,28 @@
-"""Skapa GitHub-issues från en fast, konfigurerad template.
+"""Skapa GitHub-issues från en fast, konfigurerad template (inbjudan av kandidat).
 
 Scope: ETT konfigurerat repository och EN konfigurerad template. Issuen används
 för att trigga en GitHub Action, så innehållet måste följa templaten exakt.
+Inget sparas lokalt.
 
 Flöde:
-  1. Agenten hämtar templaten via GitHub MCP och sparar den lokalt.
-  2. `issue draft` tolkar templaten, validerar svaren och skapar ett utkast.
-  3. Användaren godkänner utkastet uttryckligen.
-  4. Agenten anropar MCP:s issue_write (method=create) med exakt utkastets innehåll.
-  5. En PreToolUse-hook (guard) stoppar allt som inte matchar konfiguration + utkast,
-     och tvingar fram en extra bekräftelse i Claude Code.
+  1. Agenten hämtar templaten via GitHub MCP och skickar den hit (stdin).
+  2. `issue questions` visar templatens frågor; användaren svarar.
+  3. `issue draft` validerar svaren, kontrollerar dubbla inbjudningar mot befintliga
+     issues och bygger exakt det som ska skickas.
+  4. Användaren godkänner utkastet uttryckligen.
+  5. Agenten anropar MCP:s issue_write (method=create). En PreToolUse-hook nekar allt
+     som inte är en ny issue i det konfigurerade repositoryt, och Claude Code visar
+     anropet och frågar användaren en gång till.
 """
 
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 from pathlib import Path
 
 from . import miniyaml, storage
 from .storage import MonitorError, read_json, write_json
-from .timeutil import now_utc, to_iso
 
 NO_RESPONSE = "_No response_"
 PLACEHOLDER = "ÄGARE/REPO"
@@ -33,10 +34,6 @@ PLACEHOLDER = "ÄGARE/REPO"
 
 def config_path() -> Path:
     return storage.home() / "issue-config.json"
-
-
-def drafts_dir() -> Path:
-    return storage.home() / "issue-drafts"
 
 
 def default_config() -> dict:
@@ -350,7 +347,9 @@ def _title(cfg: dict, template: dict, answers: dict, missing: list) -> str:
 
 
 def build_draft(cfg: dict, template: dict, answers: dict, repo_meta: dict | None,
-                requested_assignees=None) -> dict:
+                requested_assignees=None, existing_issues=None) -> dict:
+    """Bygger utkastet. `existing_issues` (svaret från list_issues) används för att hitta
+    dubbla inbjudningar. Inget sparas lokalt."""
     owner, name = storage.parse_full_name(cfg["repository"])
     missing, errors, warnings = [], [], []
     meta = repo_meta or {}
@@ -415,37 +414,46 @@ def build_draft(cfg: dict, template: dict, answers: dict, repo_meta: dict | None
     if milestone is not None:
         payload["milestone"] = milestone
 
+    # Dubbla inbjudningar: finns det redan en issue för samma GitHub-användarnamn?
+    duplicate = None
+    if existing_issues is not None:
+        from . import discovery  # undvik cirkulär import
+        dcfg = discovery.load_config()
+        mine = discovery.person_from_issue({"body": body}, dcfg, None)
+        if mine:
+            for issue in discovery._issue_list(existing_issues) or []:
+                other = discovery.person_from_issue(issue, dcfg, f"{owner}/{name}")
+                if other and other["username"].lower() == mine["username"].lower():
+                    duplicate = other
+                    if (issue.get("state") or "").lower() in ("open", ""):
+                        errors.append(f"Det finns redan en öppen inbjudan för {mine['username']}: "
+                                      f"issue #{other['issue_number']}. Ingen ny issue skapas.")
+                    else:
+                        warnings.append(f"{mine['username']} har bjudits in tidigare (stängd issue "
+                                        f"#{other['issue_number']}).")
+                    break
+    else:
+        warnings.append("Det är inte kontrollerat om personen redan har bjudits in.")
+
     ready = not missing and not errors
     return {
-        "id": None,
-        "status": "draft" if ready else "incomplete",
-        "created_at": to_iso(now_utc()),
+        "status": "ready" if ready else "incomplete",
         "repository": f"{owner}/{name}",
         "template_path": template["path"],
         "template_name": template.get("name"),
-        "template_sha256": template["sha256"],
         "payload": payload,
         "missing": missing,
         "errors": errors,
         "warnings": warnings,
-        "answers": answers,
+        "duplicate_of": duplicate["issue_url"] if duplicate else None,
     }
 
 
-def save_draft(draft: dict) -> Path:
-    stamp = now_utc().strftime("%Y%m%dT%H%M%SZ")
-    digest = payload_digest(draft["payload"])[:8]
-    draft["id"] = f"{stamp}-{digest}"
-    path = drafts_dir() / f"{draft['id']}.json"
-    write_json(path, draft)
-    return path
-
-
-def render_preview(draft: dict, template: dict) -> str:
+def render_preview(draft: dict) -> str:
     p = draft["payload"]
     lines = ["## Ny GitHub Issue (utkast)", "",
              f"- **Repository:** {draft['repository']}",
-             f"- **Template:** {template.get('name') or draft['template_path']} (`{draft['template_path']}`)",
+             f"- **Template:** {draft.get('template_name') or draft['template_path']} (`{draft['template_path']}`)",
              f"- **Titel:** {p['title'] or '(saknas)'}",
              f"- **Labels:** {', '.join(p.get('labels') or []) or 'inga'}",
              f"- **Assignees:** {', '.join(p.get('assignees') or []) or 'inga'}"]
@@ -458,9 +466,8 @@ def render_preview(draft: dict, template: dict) -> str:
         lines += ["", "### Problem som måste lösas", ""] + [f"- {e}" for e in draft["errors"]]
     if draft["warnings"]:
         lines += ["", "### Observera", ""] + [f"- {w}" for w in draft["warnings"]]
-    if draft["status"] == "draft":
-        lines += ["", f"Utkast-id: `{draft['id']}`", "",
-                  "**Vill du att jag skapar denna issue?** (svara ja för att skapa den)"]
+    if draft["status"] == "ready":
+        lines += ["", "**Vill du att jag skapar denna issue?** (svara ja för att skapa den)"]
     else:
         lines += ["", "*Utkastet är inte klart och kan inte skapas ännu.*"]
     return "\n".join(lines) + "\n"
@@ -470,37 +477,9 @@ def render_preview(draft: dict, template: dict) -> str:
 # Spärr (används av .claude/hooks/issue_guard.py)
 # --------------------------------------------------------------------------
 
-def _norm_payload(p: dict) -> dict:
-    return {
-        "method": str(p.get("method") or ""),
-        "owner": str(p.get("owner") or "").lower(),
-        "repo": str(p.get("repo") or "").lower(),
-        "title": (p.get("title") or "").strip(),
-        "body": (p.get("body") or "").replace("\r\n", "\n").strip(),
-        "labels": sorted(p.get("labels") or []),
-        "assignees": sorted(a.lower() for a in (p.get("assignees") or [])),
-        "milestone": int(p["milestone"]) if p.get("milestone") not in (None, "") else None,
-    }
-
-
-def payload_digest(p: dict) -> str:
-    return hashlib.sha256(json.dumps(_norm_payload(p), sort_keys=True).encode("utf-8")).hexdigest()
-
-
-def _drafts():
-    d = drafts_dir()
-    if not d.exists():
-        return []
-    out = []
-    for f in sorted(d.glob("*.json")):
-        data = read_json(f, None)
-        if isinstance(data, dict):
-            out.append((f, data))
-    return out
-
-
 def check_issue_write(tool_input: dict) -> tuple[str, str]:
-    """Returnerar ('deny'|'ask', motivering)."""
+    """Returnerar ('deny'|'ask', motivering). 'ask' betyder att användaren alltid
+    måste bekräfta i Claude Code – och då ser exakt vad som skickas."""
     method = tool_input.get("method")
     if method != "create":
         return "deny", ("Repository Monitor får bara skapa nya issues (method=create). "
@@ -513,62 +492,15 @@ def check_issue_write(tool_input: dict) -> tuple[str, str]:
             (owner.lower(), name.lower()):
         return "deny", (f"Issues får bara skapas i det konfigurerade repositoryt {owner}/{name}, "
                         f"inte i {tool_input.get('owner')}/{tool_input.get('repo')}.")
-    digest = payload_digest(tool_input)
-    created_match = None
-    for path, d in _drafts():
-        if payload_digest(d.get("payload") or {}) != digest:
-            continue
-        if d.get("status") == "draft":
-            return "ask", (f"Skapa issue i {owner}/{name}: ”{tool_input.get('title')}” "
-                           f"(utkast {d.get('id')}). Godkänn bara om användaren har sagt ja till utkastet.")
-        if d.get("status") == "created":
-            created_match = d
-    if created_match:
-        return "deny", (f"Denna issue är redan skapad ({created_match.get('issue_url') or 'se utkast ' + str(created_match.get('id'))}). "
-                        "Skapa ett nytt utkast om en till issue verkligen ska skapas.")
-    return "deny", ("Innehållet matchar inget godkänt utkast. Skapa utkastet med "
-                    "`python3 -m repo_monitor issue draft`, visa det för användaren och använd "
-                    "exakt payload från `python3 -m repo_monitor issue payload <id>`.")
+    if not str(tool_input.get("title") or "").strip() or not str(tool_input.get("body") or "").strip():
+        return "deny", "Issuen saknar titel eller beskrivning. Skapa utkastet med `issue draft` först."
+    return "ask", (f"Skapa issue i {owner}/{name}: ”{tool_input.get('title')}”. "
+                   "Godkänn bara om användaren har sagt ja till exakt detta utkast.")
 
 
-_ISSUE_URL = re.compile(r"https://github\.com/[^/\s\"]+/[^/\s\"]+/issues/\d+")
-
-
-def record_created(tool_input: dict, tool_response) -> dict | None:
-    """Markerar matchande utkast som skapat. Returnerar utkastet eller None."""
-    digest = payload_digest(tool_input)
-    text = tool_response if isinstance(tool_response, str) else json.dumps(tool_response, ensure_ascii=False)
-    m = _ISSUE_URL.search(text or "")
-    for path, d in _drafts():
-        if d.get("status") == "draft" and payload_digest(d.get("payload") or {}) == digest:
-            d["status"] = "created"
-            d["submitted_at"] = to_iso(now_utc())
-            if m:
-                d["issue_url"] = m.group(0)
-                d["issue_number"] = int(m.group(0).rsplit("/", 1)[1])
-            after_created(d)
-            write_json(path, d)
-            return d
+def record_created(tool_input: dict, tool_response) -> None:
+    """Inget sparas lokalt längre. Finns kvar för hookens PostToolUse-anrop."""
     return None
-
-
-def after_created(draft: dict) -> None:
-    """Registrerar kandidaten i monitorn så att man direkt kan fråga om repot."""
-    from . import discovery  # undvik cirkulär import
-    try:
-        registry = storage.load_registry()
-        entry = discovery.register_invitation(registry, draft)
-        if entry is not None:
-            storage.save_registry(registry)
-            draft["registered_repository"] = f"{entry['owner']}/{entry['name']}"
-        else:
-            draft["registered_repository"] = None
-            draft.setdefault("warnings", []).append(
-                "Kandidaten kunde inte registreras i monitorn: inget GitHub-användarnamn hittades i "
-                "issuen. Kontrollera issue_fields i repo-monitor/discovery.json.")
-    except Exception as exc:  # registreringen får aldrig stoppa själva issuen
-        draft["registered_repository"] = None
-        draft.setdefault("warnings", []).append(f"Registrering i monitorn misslyckades: {exc}")
 
 
 def render_questions(template: dict) -> str:
@@ -593,13 +525,3 @@ def render_questions(template: dict) -> str:
         lines.append(f"{n}. **Titel på issuen** (valfri – annars föreslår jag en utifrån svaren)")
     lines += ["", "Svara gärna på alla på en gång, t.ex. med en rad per nummer."]
     return "\n".join(lines) + "\n"
-
-
-def find_draft(draft_id: str) -> tuple[Path, dict]:
-    path = drafts_dir() / f"{draft_id}.json"
-    if not path.exists():
-        cands = [p for p in drafts_dir().glob(f"*{draft_id}*.json")] if drafts_dir().exists() else []
-        if len(cands) != 1:
-            raise MonitorError(f"Hittar inget utkast med id {draft_id}.")
-        path = cands[0]
-    return path, read_json(path)
