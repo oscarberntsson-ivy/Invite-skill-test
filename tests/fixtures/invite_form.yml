@@ -1,0 +1,27 @@
+name: Bjud in kandidat
+description: Skapar ett challenge-repo och bjuder in kandidaten.
+title: "[Kandidat]: "
+labels: ["invite-candidate"]
+body:
+  - type: input
+    id: name
+    attributes:
+      label: Namn
+      description: Kandidatens för- och efternamn.
+    validations:
+      required: true
+  - type: input
+    id: github_username
+    attributes:
+      label: GitHub-användarnamn
+      description: Kandidatens användarnamn på GitHub.
+      placeholder: anna-a
+    validations:
+      required: true
+  - type: dropdown
+    id: level
+    attributes:
+      label: Nivå
+      options: [Junior, Senior]
+    validations:
+      required: true

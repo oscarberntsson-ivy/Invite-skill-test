@@ -546,9 +546,53 @@ def record_created(tool_input: dict, tool_response) -> dict | None:
             if m:
                 d["issue_url"] = m.group(0)
                 d["issue_number"] = int(m.group(0).rsplit("/", 1)[1])
+            after_created(d)
             write_json(path, d)
             return d
     return None
+
+
+def after_created(draft: dict) -> None:
+    """Registrerar kandidaten i monitorn så att man direkt kan fråga om repot."""
+    from . import discovery  # undvik cirkulär import
+    try:
+        registry = storage.load_registry()
+        entry = discovery.register_invitation(registry, draft)
+        if entry is not None:
+            storage.save_registry(registry)
+            draft["registered_repository"] = f"{entry['owner']}/{entry['name']}"
+        else:
+            draft["registered_repository"] = None
+            draft.setdefault("warnings", []).append(
+                "Kandidaten kunde inte registreras i monitorn: inget GitHub-användarnamn hittades i "
+                "issuen. Kontrollera issue_fields i repo-monitor/discovery.json.")
+    except Exception as exc:  # registreringen får aldrig stoppa själva issuen
+        draft["registered_repository"] = None
+        draft.setdefault("warnings", []).append(f"Registrering i monitorn misslyckades: {exc}")
+
+
+def render_questions(template: dict) -> str:
+    """Templatens frågor som ett numrerat meddelande på svenska."""
+    lines = [f"För att bjuda in en kandidat behöver jag följande uppgifter "
+             f"(enligt templaten ”{template.get('name') or template['path']}”):", ""]
+    n = 0
+    for q in questions(template):
+        n += 1
+        req = "**obligatorisk**" if q["required"] else "valfri"
+        line = f"{n}. **{q['label']}** ({req})"
+        if q.get("description"):
+            line += f" – {q['description']}"
+        lines.append(line)
+        if q["options"]:
+            kind = "kryssa i" if q["type"] == "checkboxes" else ("välj en eller flera" if q["multiple"] else "välj en")
+            lines.append(f"   - {kind}: " + " · ".join(f"`{o}`" for o in q["options"]))
+        if q.get("placeholder"):
+            lines.append(f"   - exempel: {q['placeholder']}")
+    if template["kind"] == "form" and (not template.get("title") or str(template["title"]).rstrip().endswith(":")):
+        n += 1
+        lines.append(f"{n}. **Titel på issuen** (valfri – annars föreslår jag en utifrån svaren)")
+    lines += ["", "Svara gärna på alla på en gång, t.ex. med en rad per nummer."]
+    return "\n".join(lines) + "\n"
 
 
 def find_draft(draft_id: str) -> tuple[Path, dict]:

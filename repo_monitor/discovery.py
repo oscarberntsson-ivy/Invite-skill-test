@@ -282,3 +282,33 @@ def find(registry: dict, text: str) -> list[dict]:
             hits.append((1, e))
     hits.sort(key=lambda x: (x[0], x[1].get("project_name") or ""))
     return [e for _, e in hits]
+
+
+def register_invitation(registry: dict, draft: dict, cfg: dict | None = None) -> dict | None:
+    """Registrerar kandidatens (förväntade) repository direkt när beställnings-issuen skapats.
+
+    Läser namn och användarnamn ur issuens beskrivning med samma regler som `sync`.
+    Returnerar registerposten, eller None om inget användarnamn kunde läsas.
+    """
+    cfg = cfg or load_config()
+    payload = draft.get("payload") or {}
+    issue = {"number": draft.get("issue_number"), "html_url": draft.get("issue_url"),
+             "body": payload.get("body"), "created_at": draft.get("submitted_at"), "state": "open"}
+    person = person_from_issue(issue, cfg, draft.get("repository"))
+    if person is None:
+        return None
+    name = cfg["repo_name_template"].format(username=person["username"])
+    existing = storage.find_entry(registry, cfg["owner"], name)
+    fields = {
+        "github_username": person["username"],
+        "invited_contributors": [person["username"]],
+        "person_name": person["name"],
+        "invitation_issue": person["issue_number"],
+        "invitation_issue_url": person["issue_url"],
+        "invited_at": person["issue_created_at"],
+        "source": (existing or {}).get("source") or "invitation",
+    }
+    if existing is None or existing.get("project_name") in (None, existing.get("name")):
+        fields["project_name"] = person["name"] or person["username"]
+    entry, _ = storage.upsert_entry(registry, cfg["owner"], name, **fields)
+    return entry

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -21,9 +22,9 @@ from .snapshot import normalize
 from .storage import MonitorError
 from .timeutil import fmt_date, now_utc, parse_iso, to_iso
 
-VIEWS = ("status", "activity", "contributors", "changes", "report")
+VIEWS = ("status", "activity", "contributors", "changes", "report", "candidate")
 # Vyer som räknas som en "kontroll" och därför uppdaterar historiken som standard.
-SAVING_VIEWS = {"changes", "report"}
+SAVING_VIEWS = {"changes", "report", "candidate"}
 
 
 def _print(text: str) -> None:
@@ -96,7 +97,7 @@ def cmd_analyze(args) -> int:
         _print(json.dumps(_json_safe(result), ensure_ascii=False, indent=2))
     else:
         _print(markdown)
-        if save:
+        if save and args.view != "candidate":
             _print("\n*Kontrollen har sparats. Nästa kontroll jämförs mot denna.*")
     return 0
 
@@ -320,9 +321,19 @@ def cmd_issue(args) -> int:
             raise MonitorError("Ange --url till den skapade issuen.")
         d["status"] = "created"
         d["issue_url"] = args.url
+        m = re.search(r"/issues/(\d+)", args.url)
+        if m:
+            d["issue_number"] = int(m.group(1))
         d.setdefault("submitted_at", to_iso(now_utc()))
+        if "registered_repository" not in d:
+            issues.after_created(d)
         storage.write_json(path, d)
         _print(f"Utkast {d['id']} markerat som skapat: {args.url}")
+        if d.get("registered_repository"):
+            _print(f"Kandidatens repository följs nu av monitorn: {d['registered_repository']}")
+        return 0
+    if action == "questions":
+        _print(issues.render_questions(_load_template(args.file)))
         return 0
     raise MonitorError(f"Okänd issue-åtgärd: {action}")
 
@@ -413,7 +424,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.set_defaults(func=cmd_registry)
 
     i = sub.add_parser("issue", help="Skapa issue från den konfigurerade templaten")
-    i.add_argument("action", choices=("config", "configure", "template", "draft", "payload", "list", "record"))
+    i.add_argument("action", choices=("config", "configure", "template", "questions", "draft", "payload", "list", "record"))
     i.add_argument("file", nargs="?", help="template-fil (template) eller utkast-id (payload/record)")
     i.add_argument("--repository")
     i.add_argument("--template-path")

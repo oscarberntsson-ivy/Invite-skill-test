@@ -21,6 +21,28 @@ Monitorn har två ansvarsområden:
    template. Issuen triggar en GitHub Action. Agenten visar alltid ett utkast och skapar issuen
    först efter ditt godkännande. Se [docs/skapa-issue.md](docs/skapa-issue.md).
 
+## Huvudflödet: bjud in en kandidat och följ upp
+
+```
+Du:     "Bjud in Anna Andersson till kodutmaningen"            (eller /bjud-in-kandidat)
+Agent:  ställer frågorna från issue-templaten (namn, GitHub-användarnamn, …)
+Du:     svarar
+Agent:  visar ett utkast och frågar "Vill du att jag skapar denna issue?"
+Du:     "ja"   (Claude Code frågar en gång till)
+Agent:  skapar issuen och skickar länken. GitHub Action skapar repot
+        ivy-engineering-challenge-<användarnamn> och bjuder in kandidaten.
+        Kandidaten följs nu automatiskt av monitorn.
+
+Senare:
+Du:     "Har Anna committat något?"
+Agent:  "Ja – Anna Andersson (anna-a) har gjort 2 commits i …, senast 25 november 2026.
+         Sedan förra kontrollen: 2 nya."
+     eller "Nej – Anna Andersson (anna-a) har inte committat något … ännu."
+```
+
+Bara kandidatens egna commits räknas. Automatiska startfiler och andras commits räknas inte. Första
+gången du frågar står det "baslinje". Därefter visas hur många commits som är nya sedan förra frågan.
+
 ## Så fungerar det
 
 ```
@@ -77,7 +99,7 @@ Monitorn har två ansvarsområden:
 | `/repo-monitor:contributors` | `/repo-monitor-contributors ägare/repo` | Vem har bidragit med vad | Nej |
 | `/repo-monitor:changes` | `/repo-monitor-changes ägare/repo` | Vad som ändrats sedan förra kontrollen | Ja |
 | `/repo-monitor:report` | `/repo-monitor-report ägare/repo` | Fullständig statusrapport (sparas i `repo-monitor/reports/`) | Ja |
-| – | `/repo-monitor-create-issue beskrivning` | Skapar en issue från den konfigurerade templaten, efter utkast och godkännande | – |
+| – | `/bjud-in-kandidat Anna Andersson` | Skapar en issue från den konfigurerade templaten, efter utkast och godkännande | – |
 
 > **Varför bindestreck i stället för kolon?** Projektets egna kommandon i Claude Code (skills) får bara
 > innehålla små bokstäver, siffror och bindestreck. Kolon (`namn:kommando`) används bara för kommandon

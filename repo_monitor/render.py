@@ -326,7 +326,43 @@ def render_changes(a) -> list[str]:
     return lines
 
 
+def render_candidate(a: dict) -> str:
+    """Kort svar: har den inbjudna personen committat något?"""
+    p = a["project"]
+    user = p.get("github_username")
+    who = p.get("person_name") or user or p["project_name"]
+    if p.get("person_name") and user:
+        who = f"{p['person_name']} ({user})"
+    repo = p["full_name"]
+    if a["code_status"] == A.EJ_TILLGANGLIGT:
+        reason = " Det har kanske inte skapats ännu." if p.get("invitation_issue") else ""
+        return (f"**Okänt** – repot {repo} kunde inte läsas.{reason} "
+                f"({a['access'].get('error') or 'okänt fel'})\n")
+    if a.get("contributors") is None:
+        return f"**Okänt** – commits i {repo} kunde inte hämtas.\n"
+    mine = [c for c in a["contributors"] if user and (c["login"] or "").lower() == user.lower()] \
+        if user else a["contributors"]
+    n = sum(c["commits"] for c in mine)
+    last = max((c["last_date"] for c in mine if c["last_date"]), default=None)
+    if n:
+        line = f"**Ja** – {who} har gjort {n} {'commit' if n == 1 else 'commits'} i {repo}"
+        line += f", senast {fmt_date(last)}." if last else "."
+    else:
+        line = f"**Nej** – {who} har inte committat något i {repo} ännu."
+    ch = a.get("changes") or {}
+    if ch.get("baseline"):
+        line += "\n\nSedan förra kontrollen: baslinje (första kontrollen)."
+    elif "commits" not in (ch.get("unknown") or []):
+        new = [c for c in ch.get("new_commits") or []
+               if not user or (c.get("author_login") or "").lower() == user.lower()]
+        line += (f"\n\nSedan förra kontrollen ({fmt_date(ch['since'])}): "
+                 + (f"{len(new)} nya." if new else "inga nya."))
+    return line + "\n"
+
+
 def render(a: dict, view: str = "report") -> str:
+    if view == "candidate":
+        return render_candidate(a)
     if a["code_status"] == A.EJ_TILLGANGLIGT:
         return "\n".join(_unavailable(a)) + "\n"
     lines = _header(a)

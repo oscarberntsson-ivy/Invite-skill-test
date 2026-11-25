@@ -11,7 +11,7 @@ Det här är det enda monitorn får skriva till GitHub. Allt annat är fortfaran
 Fråga Claude, eller använd kommandot:
 
 ```
-/repo-monitor-create-issue nytt repo "webshop" för anna och erik
+/bjud-in-kandidat Anna Andersson, anna-a
 ```
 
 Agenten gör följande:
