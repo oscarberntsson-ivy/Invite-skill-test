@@ -240,7 +240,7 @@ class TestConfigAndGuard(Home):
         env = {**os.environ, "CLAUDE_PROJECT_DIR": str(ROOT)}
 
         def run(mode, payload, response=None):
-            event = {"tool_name": "mcp__github-issues__issue_write", "tool_input": payload}
+            event = {"tool_name": "mcp__github__issue_write", "tool_input": payload}
             if response is not None:
                 event["tool_response"] = response
             r = subprocess.run([sys.executable, str(script), mode], input=json.dumps(event),

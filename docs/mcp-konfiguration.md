@@ -2,8 +2,10 @@
 
 Monitorn använder GitHubs officiella MCP-server, [github/github-mcp-server](https://github.com/github/github-mcp-server).
 Den konfigureras i `.mcp.json` i projektets rot och laddas automatiskt när Claude Code startas i mappen.
+**En enda server** (`github`) används för all kommunikation med GitHub: för att läsa repos, commits
+och pull requests, och för att skapa inbjudnings-issuen.
 
-## 1. Skapa en token med enbart läsbehörighet
+## 1. Skapa en token med minsta möjliga behörighet
 
 Använd en **fine-grained personal access token** (GitHub → Settings → Developer settings →
 Personal access tokens → Fine-grained tokens):
@@ -15,10 +17,12 @@ Personal access tokens → Fine-grained tokens):
 | **Metadata** | Read-only (obligatoriskt) |
 | **Contents** | Read-only (commits, grenar, filer) |
 | **Pull requests** | Read-only |
-| **Issues** | Read-only (valfritt, för inbjudnings-issues) |
+| **Issues** | **Read and write**. Krävs för att skapa inbjudnings-issuen. Utan den fungerar allt utom inbjudan. |
 | Expiration | Sätt ett utgångsdatum, till exempel 90 dagar |
 
-Ge **inga** skrivbehörigheter. Om organisationen kräver godkännande av tokens måste en
+Ge **inga** andra skrivbehörigheter. En fine-grained token har samma behörigheter för alla valda
+repositories, så *Issues: Read and write* gäller även challenge-repona. Agenten kan ändå bara skapa
+issues i det konfigurerade repositoryt, eftersom spärren nekar allt annat (se avsnitt 4). Om organisationen kräver godkännande av tokens måste en
 organisationsägare godkänna den. Med en klassisk token behövs scope `repo` för privata repositories
 eller `public_repo` för publika. Den ger dock skrivrätt, så fine-grained token rekommenderas.
 
@@ -44,7 +48,6 @@ med `source .env`. `.mcp.json` hämtar värdet via `${GITHUB_PERSONAL_ACCESS_TOK
       "url": "https://api.githubcopilot.com/mcp/",
       "headers": {
         "Authorization": "Bearer ${GITHUB_PERSONAL_ACCESS_TOKEN}",
-        "X-MCP-Readonly": "true",
         "X-MCP-Toolsets": "context,repos,pull_requests,issues"
       }
     }
@@ -52,8 +55,11 @@ med `source .env`. `.mcp.json` hämtar värdet via `${GITHUB_PERSONAL_ACCESS_TOK
 }
 ```
 
-- `X-MCP-Readonly: true` gör att servern bara exponerar läsverktyg.
 - `X-MCP-Toolsets` begränsar servern till de verktygsgrupper som behövs.
+- Servern körs **inte** i read-only-läge, eftersom den behöver kunna skapa inbjudnings-issuen.
+  Skrivskyddet sköts i stället av Claude Code (avsnitt 4).
+- Vill du bara följa repos och aldrig bjuda in via agenten: lägg till `"X-MCP-Readonly": "true"`.
+  Då exponerar servern bara läsverktyg.
 
 ### Alternativ: lokal Docker i stället för GitHubs hostade server
 
@@ -63,38 +69,31 @@ med `source .env`. `.mcp.json` hämtar värdet via `${GITHUB_PERSONAL_ACCESS_TOK
     "github": {
       "command": "docker",
       "args": ["run", "-i", "--rm",
-               "-e", "GITHUB_PERSONAL_ACCESS_TOKEN", "-e", "GITHUB_TOOLSETS", "-e", "GITHUB_READ_ONLY",
+               "-e", "GITHUB_PERSONAL_ACCESS_TOKEN", "-e", "GITHUB_TOOLSETS",
                "ghcr.io/github/github-mcp-server"],
       "env": {
         "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}",
-        "GITHUB_TOOLSETS": "context,repos,pull_requests,issues",
-        "GITHUB_READ_ONLY": "1"
+        "GITHUB_TOOLSETS": "context,repos,pull_requests,issues"
       }
     }
   }
 }
 ```
 
-## 4. Dubbelt skydd i Claude Code (`.claude/settings.json`)
-
-Utöver read-only-läget i servern gäller detta i `.claude/settings.json`:
+## 4. Skydd i Claude Code (`.claude/settings.json`)
 
 - **`allow`:** läsverktygen (`list_commits`, `get_commit`, `list_branches`, `list_pull_requests`,
   `pull_request_read`, `search_repositories` med flera) och `python3 -m repo_monitor` körs utan att
   Claude frågar om lov varje gång.
-- **`deny`:** alla skrivverktyg är blockerade, även om servern skulle exponera dem. Det gäller push,
-  filändringar, nya grenar, att skapa, merga eller uppdatera pull requests, kommentarer, issues och
-  att starta workflows.
+- **`deny`:** alla andra skrivverktyg är blockerade. Det gäller push, filändringar, nya grenar, att
+  skapa, merga eller uppdatera pull requests, kommentarer, sub-issues och att starta workflows.
+- **`ask` och hook:** `issue_write` är det enda skrivverktyget. Claude Code frågar alltid innan det
+  används. Spärren `.claude/hooks/issue_guard.py` nekar allt som inte är en *ny* issue i det
+  konfigurerade repositoryt, med exakt innehållet från ett godkänt utkast. Se [skapa-issue.md](skapa-issue.md).
 
 > Deny-listan gäller hela projektet. Vill du någon gång skapa en pull request i *det här* repot via
 > Claude måste du tillfälligt ta bort `mcp__github__create_pull_request` från listan, till exempel i
 > `.claude/settings.local.json`.
-
-## Server för att skapa issues
-
-Funktionen för att skapa issues använder en separat server, `github-issues`, med en egen token som
-bara har *Issues: Read and write* på det konfigurerade repositoryt. Se
-[skapa-issue.md](skapa-issue.md). Lässervern `github` ovan ändras inte och kan aldrig skriva.
 
 ## Verktyg som används
 
@@ -106,4 +105,5 @@ bara har *Issues: Read and write* på det konfigurerade repositoryt. Se
 | Commits och författare | `list_commits` |
 | Enskild commit med ändrade filer | `get_commit` |
 | Pull requests | `list_pull_requests`, `pull_request_read` |
-| Inbjudnings-issues (valfritt) | `list_issues`, `issue_read` |
+| Läsa inbjudnings-issues och templaten | `list_issues`, `issue_read`, `get_file_contents`, `get_label` |
+| Skapa inbjudnings-issue (enda skrivningen) | `issue_write` (`method: create`) |

@@ -2,7 +2,7 @@
 name: bjud-in-kandidat
 description: Bjuder in / lägger till en kandidat (person) till kodutmaningen på GitHub. Ställer frågorna från den konfigurerade issue-templaten, visar ett utkast och skapar – efter godkännande – en GitHub-issue i det ENDA konfigurerade repositoryt, vilket triggar en GitHub Action som skapar kandidatens repo. Använd när användaren vill bjuda in, lägga till eller beställa ett repo för en kandidat/person.
 argument-hint: "[kandidatens namn och/eller GitHub-användarnamn]"
-allowed-tools: mcp__github__get_file_contents, mcp__github__get_label, mcp__github__list_repository_collaborators, mcp__github-issues__issue_write, Bash(python3 -m repo_monitor:*), Read, Write(repo-monitor/issue-work/**)
+allowed-tools: mcp__github__get_file_contents, mcp__github__get_label, mcp__github__list_repository_collaborators, mcp__github__issue_write, Bash(python3 -m repo_monitor:*), Read, Write(repo-monitor/issue-work/**)
 ---
 
 # Bjud in kandidat till kodutmaningen
@@ -52,7 +52,7 @@ Detta är **det enda** som Repository Monitor får skriva till GitHub.
    Slutkod 3 betyder att något saknas eller är fel. Fråga användaren och kör om.
 6. **Visa utkastet** som verktyget skrev det och fråga **"Vill du att jag skapar denna issue?"** Vänta på svar.
 7. **Efter uttryckligt ja:** `python3 -m repo_monitor issue payload <utkast-id>`. Anropa
-   `mcp__github-issues__issue_write` med **exakt** de fälten och ändra ingenting.
+   `mcp__github__issue_write` med **exakt** de fälten och ändra ingenting.
 8. **Svara kort:**
    - Länken till issuen.
    - Att GitHub Action nu skapar kandidatens repo och skickar inbjudan.
@@ -62,8 +62,8 @@ Detta är **det enda** som Repository Monitor får skriva till GitHub.
    Om spärren inte fick med länken: `python3 -m repo_monitor issue record <utkast-id> --url <länk>`.
    Vid fel från GitHub: förklara felet enkelt och skapa inte issuen igen utan ett nytt godkännande.
 
-## Om `mcp__github-issues__issue_write` saknas
+## Om `mcp__github__issue_write` saknas eller nekas
 
-Servern `github-issues` är inte ansluten. Använd **inte** något annat skrivverktyg. Förklara att
-`GITHUB_ISSUES_TOKEN` och servern `github-issues` behöver konfigureras (`docs/skapa-issue.md`). Utkastet
+GitHub MCP-servern (`github`) är inte ansluten, eller saknar toolset `issues` eller behörighet att skriva
+issues. Använd **inte** något annat skrivverktyg. Förklara kort vad som behöver göras (`docs/skapa-issue.md`). Utkastet
 är sparat och kan skapas senare.

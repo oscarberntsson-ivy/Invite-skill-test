@@ -62,29 +62,13 @@ Andra flaggor till `issue configure`: `--template-ref`, `--title`, `--labels a,b
 
 ## Token och MCP-server
 
-Att skapa issues kräver skrivbehörighet. Därför används en **separat** MCP-server, `github-issues`,
-med en **separat** token. Läsningen via `github` fortsätter att vara read-only.
+Issuen skapas med samma GitHub MCP-server (`github`) som används för all annan kommunikation med
+GitHub. Någon extra server eller token behövs inte.
 
-1. Skapa en fine-grained token med:
-   - *Repository access:* **endast** det konfigurerade repositoryt.
-   - *Issues:* **Read and write**.
-   - *Metadata:* Read-only.
-   - Inga andra behörigheter. Sätt ett utgångsdatum.
-2. Sätt den som miljövariabel innan du startar Claude Code:
-   ```bash
-   export GITHUB_ISSUES_TOKEN=github_pat_...
-   ```
-3. `.mcp.json` innehåller redan servern:
-   ```json
-   "github-issues": {
-     "type": "http",
-     "url": "https://api.githubcopilot.com/mcp/",
-     "headers": {
-       "Authorization": "Bearer ${GITHUB_ISSUES_TOKEN}",
-       "X-MCP-Toolsets": "issues"
-     }
-   }
-   ```
+1. Token (`GITHUB_PERSONAL_ACCESS_TOKEN`, se [mcp-konfiguration.md](mcp-konfiguration.md)) behöver
+   **Issues: Read and write** på det konfigurerade repositoryt, utöver läsbehörigheterna.
+2. Toolset `issues` måste vara aktiverat (`X-MCP-Toolsets` i `.mcp.json`). Det är det redan.
+3. Kontrollera med `/mcp` i Claude Code att servern `github` är ansluten.
 
 GitHub Action triggas av att issuen skapas, oavsett vem som skapar den. Om workflowen kontrollerar
 *vem* som skapat issuen (till exempel `github.event.issue.user.login` eller `author_association`) måste
@@ -99,7 +83,7 @@ tokenens ägare uppfylla det villkoret.
 | Bara exakt det innehåll som visats i ett sparat utkast | Spärren jämför titel, beskrivning, labels, assignees och milestone |
 | Samma utkast kan inte skapas två gånger | Spärren och PostToolUse-hooken |
 | Claude Code frågar alltid innan issuen skickas | `ask` i `.claude/settings.json` och spärrens beslut `ask` |
-| Lässervern `github` kan aldrig skriva issues | `deny` på `mcp__github__issue_write` |
+| `issue_write` är det enda skrivverktyget som tillåts. Det kräver alltid bekräftelse. | `ask` på `mcp__github__issue_write`, `deny` på alla andra skrivverktyg |
 | Kommentarer, sub-issues och andra skrivverktyg är spärrade | `deny` i `.claude/settings.json` |
 | Templates, konfiguration, utkast och spärren kan inte ändras av agenten | `deny` på Edit/Write |
 | Labels och milestones måste finnas i repositoryt | `issue draft` stoppar utkastet annars |
@@ -124,7 +108,8 @@ PyYAML används om det finns installerat. Annars används en inbyggd tolk.
 | "Issue-funktionen är inte konfigurerad" | Kör `issue configure` (se ovan). |
 | Templaten kunde inte hämtas (404) | Kontrollera `repository`, `template_path` och `template_ref`, och att `GITHUB_PERSONAL_ACCESS_TOKEN` kan läsa repositoryt. |
 | "Labeln … finns inte" | Skapa labeln i repositoryt eller ändra `extra_labels`. Templatens labels kan behövas för att workflowen ska triggas. |
-| `mcp__github-issues__issue_write` saknas | Sätt `GITHUB_ISSUES_TOKEN`, starta om Claude Code och kontrollera `/mcp`. Utkastet är sparat. |
+| `mcp__github__issue_write` saknas | Kontrollera med `/mcp` att `github` är ansluten, att `X-MCP-Toolsets` innehåller `issues`, och att `X-MCP-Readonly` *inte* är satt. Utkastet är sparat. |
+| 403 när issuen skapas | Token saknar *Issues: Read and write* på det konfigurerade repositoryt. |
 | "Innehållet matchar inget godkänt utkast" | Utkastet ändrades efter att det visades. Skapa ett nytt utkast. |
 | GitHub Action startade inte | Kontrollera i repositoryts Actions-flik att workflowen lyssnar på `issues: [opened]` (eller `labeled`) och att eventuella villkor på label och titel uppfylls. |
 

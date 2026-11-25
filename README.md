@@ -53,7 +53,7 @@ gången du frågar står det "baslinje". Därefter visas hur många commits som 
         │                                            │
         │ 1. hämtar data (ENDAST läsning)            │ 3. översätter tekniska
         ▼                                            │    meddelanden till svenska
- GitHub MCP (officiell server, read-only)            │
+ GitHub MCP (officiell server, en enda)              │
         │                                            │
         ▼ 2. snapshot (JSON)                         │
  python3 -m repo_monitor ── status, contributors, ───┘
@@ -63,7 +63,8 @@ gången du frågar står det "baslinje". Därefter visas hur många commits som 
  repo-monitor/  registry.json · state/ (historik) · reports/ (rapporter)
 ```
 
-- **GitHub MCP** är den enda datakällan. Den körs i läsläge, och skrivverktyg är dessutom blockerade
+- **GitHub MCP** är den enda kopplingen till GitHub, både för läsning och för att skapa
+  inbjudnings-issuen. Alla andra skrivverktyg är blockerade
   i `.claude/settings.json`.
 - **`repo_monitor`** (Python, bara standardbiblioteket) räknar fram status, contributors och
   förändringar på ett deterministiskt sätt. Siffrorna gissas aldrig av AI:n.
@@ -145,7 +146,7 @@ en sidogren räknas inte som mergad, och en öppen pull request räknas inte som
 
 | Sökväg | Innehåll |
 |---|---|
-| `.mcp.json` | MCP-servrarna `github` (read-only) och `github-issues` (bara issues, separat token) |
+| `.mcp.json` | GitHub MCP-servern `github` (officiell, begränsade toolsets, token från miljövariabel) |
 | `.claude/settings.json` | Tillåtna läsverktyg, blockerade skrivverktyg och hooks |
 | `.claude/hooks/issue_guard.py` | Spärr: issues skapas bara i det konfigurerade repot och bara enligt ett godkänt utkast |
 | `repo-monitor/issue-config.json` | Konfiguration för issue-skapande (repository och template) |
