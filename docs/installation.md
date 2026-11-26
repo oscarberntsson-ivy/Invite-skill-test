@@ -37,16 +37,53 @@ Fungerar enligt Claudes hjälpcenter på alla planer, även Free. Det som krävs
 > Om kopplingen inte går att lägga till med en token: GitHubs MCP-server och claude.ai har inte
 > bekräftat att inloggning fungerar mellan dem. Använd då alternativ B.
 
-## Alternativ B: Claude Code
+## Alternativ B: Claude Code – ett kommando (rekommenderas)
+
+Kräver bara att [Claude Code](https://docs.claude.com/en/docs/claude-code) är installerat och att du
+har en GitHub-token (se nedan). Skriptet installerar skillen **personligt**, så att den fungerar i
+alla mappar.
+
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/oscarberntsson-ivy/Invite-skill-test/claude/github-repo-monitor-mcp-zuul3l/install.ps1 | iex
+```
+
+**macOS / Linux / WSL (Terminal):**
+```bash
+curl -fsSL https://raw.githubusercontent.com/oscarberntsson-ivy/Invite-skill-test/claude/github-repo-monitor-mcp-zuul3l/install.sh | bash
+```
+
+Skriptet gör följande:
+1. Hämtar skillen till `~/.claude/skills/kodutmaning`. Git behövs inte.
+2. Frågar efter inbjudnings-repo och template, om `konfiguration.md` inte redan är ifylld i repot.
+   Är den ifylld blir det inga frågor.
+3. Frågar efter din GitHub-token med dold inmatning och lägger till GitHub-kopplingen för alla
+   mappar. Ingen miljövariabel behövs. Token sparas i Claude Codes egen fil `~/.claude.json`.
+4. Lägger till skyddsreglerna i `~/.claude/settings.json`, utan att ta bort något du redan har där:
+   - Läsverktygen tillåts utan att Claude frågar.
+   - Claude frågar alltid innan en issue skapas.
+   - Alla andra skrivverktyg blockeras, också i dina andra projekt.
+
+Starta sedan `claude` i valfri mapp och kontrollera kopplingen med `/mcp`.
+
+- **Uppdatera:** kör samma kommando igen. Din ifyllda konfiguration behålls.
+- **Byta token:** kör kommandot igen och klistra in den nya.
+- **Avinstallera:**
+  - Windows: `$env:KODUTMANING_UNINSTALL=1; irm https://raw.githubusercontent.com/oscarberntsson-ivy/Invite-skill-test/claude/github-repo-monitor-mcp-zuul3l/install.ps1 | iex`
+  - macOS och Linux: `curl -fsSL https://raw.githubusercontent.com/oscarberntsson-ivy/Invite-skill-test/claude/github-repo-monitor-mcp-zuul3l/install.sh | bash -s -- --uninstall`
+
+  Skyddsreglerna i `~/.claude/settings.json` ligger kvar. Ta bort dem för hand om du vill.
+
+> **Tips för administratören:** fyll i `konfiguration.md` i repot innan andra installerar. Då
+> behöver användarna bara klistra in sin token.
+
+### Manuellt, i repo-mappen (utan skript)
 
 1. Hämta mappen (`git clone -b claude/github-repo-monitor-mcp-zuul3l https://github.com/oscarberntsson-ivy/Invite-skill-test.git`,
    eller ladda ner som ZIP).
-2. Sätt token: `export GITHUB_PERSONAL_ACCESS_TOKEN=github_pat_...`
-3. Starta `claude` i mappen och godkänn MCP-servern `github`. Kontrollera med `/mcp`.
-4. Skillen laddas automatiskt. Du kan också skriva `/kodutmaning`.
-
-`.mcp.json` och `.claude/settings.json` i mappen kopplar GitHub och blockerar skrivverktyg utom
-`issue_write`. Claude Code frågar alltid innan `issue_write` används.
+2. Sätt token som miljövariabel `GITHUB_PERSONAL_ACCESS_TOKEN`.
+3. Starta `claude` i mappen och godkänn MCP-servern `github`. `.mcp.json` och
+   `.claude/settings.json` i mappen kopplar GitHub och lägger in skyddsreglerna.
 
 ## GitHub-token
 

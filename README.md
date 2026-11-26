@@ -34,12 +34,23 @@ Claude:  en tabell med status, antal commits, senaste commit och öppna pull req
 
 ## Kom igång
 
-Se [docs/installation.md](docs/installation.md):
+**Claude Code: ett kommando.** Skriptet installerar skillen för alla mappar och frågar efter din GitHub-token:
 
-1. Fyll i [`konfiguration.md`](.claude/skills/kodutmaning/konfiguration.md): inbjudnings-repo och template.
-2. **claude.ai eller desktop-appen:** ladda upp mappen `kodutmaning` som ZIP under *Skills*, och lägg
-   till GitHub som anpassad koppling (`https://api.githubcopilot.com/mcp/`).
-   **Claude Code:** starta `claude` i den här mappen.
+```powershell
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/oscarberntsson-ivy/Invite-skill-test/claude/github-repo-monitor-mcp-zuul3l/install.ps1 | iex
+```
+```bash
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/oscarberntsson-ivy/Invite-skill-test/claude/github-repo-monitor-mcp-zuul3l/install.sh | bash
+```
+
+**claude.ai eller desktop-appen:** ladda upp mappen `kodutmaning` som ZIP under *Skills*, och lägg
+till GitHub som anpassad koppling (`https://api.githubcopilot.com/mcp/`).
+
+Detaljer, tokenkrav och avinstallation finns i [docs/installation.md](docs/installation.md).
+Fyll gärna i [`konfiguration.md`](.claude/skills/kodutmaning/konfiguration.md) i repot först, så
+slipper användarna svara på frågor om repo och template.
 
 ## Innehåll
 
@@ -49,7 +60,9 @@ Se [docs/installation.md](docs/installation.md):
 | `.claude/skills/kodutmaning/konfiguration.md` | Inbjudnings-repo, template, organisation och fältnamn |
 | `.claude/skills/kodutmaning/bjud-in.md` | Så bjuds en kandidat in (frågor, utkast, issue) |
 | `.claude/skills/kodutmaning/uppfoljning.md` | Så besvaras "har kandidaten committat något?" och översikten |
-| `.mcp.json`, `.claude/settings.json` | Bara för Claude Code: GitHub MCP och blockerade skrivverktyg |
+| `install.ps1`, `install.sh` | Installation för Claude Code med ett kommando |
+| `settings.user.json` | Skyddsreglerna (används av installationen och vid manuell installation) |
+| `.mcp.json`, `.claude/settings.json` | För Claude Code när man kör i repo-mappen |
 | `docs/` | Installation och felsökning |
 
 ## Säkerhet
