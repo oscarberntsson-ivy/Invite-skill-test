@@ -13,7 +13,11 @@ Kontrollera också organisationen och fältnamnen.
 
 ## Alternativ A: Claude i webbläsaren eller desktop-appen (ingen installation)
 
-Kräver Pro, Max, Team eller Enterprise, och att kodkörning är påslagen.
+Fungerar enligt Claudes hjälpcenter på alla planer, även Free. Det som krävs:
+- **Kodkörning** måste vara påslagen, eftersom skills kräver det. På Free, Pro och Max slår du på
+  det under *Settings → Capabilities*. På Team och Enterprise styr administratören det.
+- **Egen koppling (custom connector):** Free får ha en, vilket räcker för GitHub. På Team och
+  Enterprise kan bara ägare (Owners) lägga till kopplingar.
 
 1. **Ladda upp skillen.**
    - Ladda ner mappen `.claude/skills/kodutmaning` från GitHub: *Code → Download ZIP*, packa upp
